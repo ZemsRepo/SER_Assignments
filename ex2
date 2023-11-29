@@ -1,0 +1,69 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import scipy as sp\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import pandas as pd"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 34,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "(12709, 1) (12709, 1) (12709, 1) (12709, 1) (1, 1) (1, 1) (1, 1)\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Load data\n",
+    "mat = sp.io.loadmat(\"dataset1.mat\")\n",
+    "\n",
+    "mat.keys()  \n",
+    "# '__header__', '__version__', '__globals__', \n",
+    "# 'r', 'x_true', 't', 'v', 'l', 'r_var', 'v_var'\n",
+    "\n",
+    "r = mat[\"r\"]\n",
+    "x_true = mat[\"x_true\"]\n",
+    "t = mat[\"t\"]\n",
+    "v = mat[\"v\"]\n",
+    "l = mat[\"l\"]\n",
+    "r_var = mat[\"r_var\"]\n",
+    "v_var = mat[\"v_var\"]\n",
+    "\n",
+    "print(r.shape, x_true.shape, t.shape, v.shape, l.shape, r_var.shape, v_var.shape)\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "base",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.9.16"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
