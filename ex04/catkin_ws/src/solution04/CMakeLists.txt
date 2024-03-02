@@ -16,6 +16,10 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
 )
 
+set(3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd_party)
+set(ESTIMATOR_NODE estimator)
+find_package(Eigen3 REQUIRED PATHS ${3RD_PARTY_DIR}/eigen-3.4.0 NO_DEFAULT_PATH)
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -55,7 +59,7 @@ add_message_files(
   MyImu.msg
   MyPose.msg
   Pixel.msg
-  SteroLandmarks.msg
+  ImgPts.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -123,7 +127,9 @@ catkin_package(
 ## Your package locations should be listed before other locations
 include_directories(
 # include
+  ${PROJECT_SOURCE_DIR}/include
   ${catkin_INCLUDE_DIRS}
+
 )
 
 ## Declare a C++ library
@@ -139,7 +145,8 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-# add_executable(${PROJECT_NAME} src/solution04_node.cpp)
+file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
+add_executable(${ESTIMATOR_NODE} ${SOURCES})
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -152,9 +159,10 @@ include_directories(
 # add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(${PROJECT_NAME}_node
-#   ${catkin_LIBRARIES}
-# )
+target_link_libraries(${ESTIMATOR_NODE}
+  ${catkin_LIBRARIES}
+  Eigen3::Eigen
+)
 
 #############
 ## Install ##

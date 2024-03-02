@@ -2,11 +2,11 @@
 
 import rospy
 import rosbag
-from solution04.msg import Pixel, SteroLandmarks, MyImu, MyPose
+from solution04.msg import Pixel, ImgPts, MyImu, MyPose
 from scipy.io import loadmat
 import yaml
 
-pkg_path = "src/solution04/assects/"
+pkg_path = "../assects/"
 mat_file = pkg_path + "dataset3.mat"
 param_file = pkg_path + "params.yaml"
 bag_file = pkg_path + "dataset3.bag"
@@ -39,7 +39,14 @@ v_var = (
 )  # (3, 1) imu linear velocity variance
 
 # landmark
-rho_i_pj_i = mat["rho_i_pj_i"].T.tolist()  # (3, 20) landmark position
+rho_i_pj_i = (
+    mat["rho_i_pj_i"]
+    .T.reshape(
+        -1,
+    )
+    .tolist()
+)  # (3, 20) landmark position
+# rho_i_pj_i = mat["rho_i_pj_i"].reshape(-1,).tolist()
 
 # stereo camera
 y_k_j = (
@@ -54,7 +61,9 @@ y_var = (
 )  # (4, 1) stereo camera observation variance
 
 # extrinsics
-C_c_v = mat["C_c_v"].tolist()  # (3, 3) rotation vehicle -> frame
+# C_c_v = mat["C_c_v"].tolist()  # (3, 3) rotation vehicle -> frame
+C_c_v = mat["C_c_v"].reshape(-1,).tolist()  # (3, 3) rotation vehicle -> frame
+
 rho_v_c_v = (
     mat["rho_v_c_v"]
     .reshape(
@@ -75,6 +84,7 @@ def write_params(file):
     params = {
         "extrinsics": {"C_c_v": C_c_v, "rho_v_c_v": rho_v_c_v},
         "intrinsics": {"fu": fu, "fv": fv, "cu": cu, "cv": cv, "b": b},
+        "covariance": {"w_var": w_var, "v_var": v_var, "y_var": y_var},
         "rho_i_pj_i": rho_i_pj_i,
     }
     with open(file, "w") as f:
@@ -84,67 +94,62 @@ def write_params(file):
 def main():
 
     rospy.init_node("mat2rosbag", anonymous=True)
-    bag = rosbag.Bag(bag_file, "w")
     time_now = rospy.Time.now()
 
     # write parameters
     write_params(param_file)
 
     # write to rosbag
-    for k in range(len(t)):
-        # timestamp
-        timestamp = time_now + rospy.Duration.from_sec(t[k])
+    with rosbag.Bag(bag_file, "w") as bag:
+        for k in range(len(t)):
+            # timestamp
+            timestamp = time_now + rospy.Duration.from_sec(t[k])
 
-        # ground truth
-        gt_pose_msg = MyPose()
-        ## header
-        gt_pose_msg.header.frame_id = "base_link"
-        gt_pose_msg.header.stamp = timestamp
-        ## rotation
-        gt_pose_msg.theta.x = theta_vk_i[k][0]
-        gt_pose_msg.theta.y = theta_vk_i[k][1]
-        gt_pose_msg.theta.z = theta_vk_i[k][2]
-        ## translation
-        gt_pose_msg.r.x = r_i_vk_i[k][0]
-        gt_pose_msg.r.y = r_i_vk_i[k][1]
-        gt_pose_msg.r.z = r_i_vk_i[k][2]
+            # ground truth
+            gt_pose_msg = MyPose()
+            ## header
+            gt_pose_msg.header.frame_id = "base_link"
+            gt_pose_msg.header.stamp = timestamp
+            ## rotation
+            gt_pose_msg.theta.x = theta_vk_i[k][0]
+            gt_pose_msg.theta.y = theta_vk_i[k][1]
+            gt_pose_msg.theta.z = theta_vk_i[k][2]
+            ## translation
+            gt_pose_msg.r.x = r_i_vk_i[k][0]
+            gt_pose_msg.r.y = r_i_vk_i[k][1]
+            gt_pose_msg.r.z = r_i_vk_i[k][2]
 
-        # imu
-        imu_msg = MyImu()
-        ## header
-        imu_msg.header.frame_id = "imu_link"
-        imu_msg.header.stamp = timestamp
-        ## angular velocity
-        imu_msg.angular_velocity.x = w_vk_vk_i[k][0]
-        imu_msg.angular_velocity.y = w_vk_vk_i[k][1]
-        imu_msg.angular_velocity.z = w_vk_vk_i[k][2]
-        ## linear velocity
-        imu_msg.linear_velocity.x = v_vk_vk_i[k][0]
-        imu_msg.linear_velocity.y = v_vk_vk_i[k][1]
-        imu_msg.linear_velocity.z = v_vk_vk_i[k][2]
+            # imu
+            imu_msg = MyImu()
+            ## header
+            imu_msg.header.frame_id = "imu_link"
+            imu_msg.header.stamp = timestamp
+            ## angular velocity
+            imu_msg.angular_velocity.x = w_vk_vk_i[k][0]
+            imu_msg.angular_velocity.y = w_vk_vk_i[k][1]
+            imu_msg.angular_velocity.z = w_vk_vk_i[k][2]
+            ## linear velocity
+            imu_msg.linear_velocity.x = v_vk_vk_i[k][0]
+            imu_msg.linear_velocity.y = v_vk_vk_i[k][1]
+            imu_msg.linear_velocity.z = v_vk_vk_i[k][2]
 
-        # stereo camera
-        stero_cam_msg = SteroLandmarks()
-        ## header
-        stero_cam_msg.header.frame_id = "base_link"
-        stero_cam_msg.header.stamp = timestamp
-        ## landmarks
-        left_points = [Pixel(round(p[0]), round(p[1])) for p in y_k_j[k]]
-        right_points = [Pixel(round(p[2]), round(p[3])) for p in y_k_j[k]]
-        stero_cam_msg.left = left_points
-        stero_cam_msg.right = right_points
+            # stereo camera
+            imgPts_msg = ImgPts()
+            ## header
+            imgPts_msg.header.frame_id = "base_link"
+            imgPts_msg.header.stamp = timestamp
+            ## landmarks
+            left_points = [Pixel(round(p[0]), round(p[1])) for p in y_k_j[k]]
+            right_points = [Pixel(round(p[2]), round(p[3])) for p in y_k_j[k]]
+            imgPts_msg.left = left_points
+            imgPts_msg.right = right_points
 
-        # rospy.loginfo(f"ground_truth: {gt_pose_msg}")
-        # rospy.loginfo(f"imu: {imu_msg}")
-        # rospy.loginfo(f"stereo_landmarks: {stero_cam_msg}")
+            # save to rosbag
+            bag.write("/gt_pose", gt_pose_msg, timestamp)
+            bag.write("/imu", imu_msg, timestamp)
+            bag.write("/img_points", imgPts_msg, timestamp)
 
-        # save to rosbag
-        bag.write("/ground_truth", gt_pose_msg, timestamp)
-        bag.write("/imu", imu_msg, timestamp)
-        bag.write("/stereo_landmarks", stero_cam_msg, timestamp)
-
-    bag.close()
-    rospy.on_shutdown(lambda: print(f"{mat_file} converted to {bag_file}. \n{param_file} created."))
+    rospy.loginfo_once(f"{mat_file} converted to {bag_file}. \n{param_file} created.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="solution04" type="mat2rosbag.py" name="mat2bag" output="screen" cwd="node" required="true"/>
+</launch>
