@@ -1,5 +1,5 @@
 <launch >
-    <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 50" output="screen" cwd="node"/>
+    <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 1" output="screen" cwd="node"/>
     <node pkg="solution04" type= "estimator" name="estimator" output="screen" cwd="node"/>
     <rosparam file="$(find solution04)/assects/params.yaml" command="load"/>
 </launch>

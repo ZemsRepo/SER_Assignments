@@ -1,7 +1,7 @@
 #ifndef SOLUTION04_INCLUDE_PARAMSERVER_H
 #define SOLUTION04_INCLUDE_PARAMSERVER_H
 
-#include "utilities.h"
+#include "utils.h"
 
 class ParamServer {
    public:
@@ -9,26 +9,26 @@ class ParamServer {
     ~ParamServer();
 
    protected:
-    ros::NodeHandle _nh;
+    ros::NodeHandle nh_;
 
     // vehicle_frame to camera_frame
-    Eigen::Matrix3d _C_c_v;
-    Eigen::Vector3d _rho_v_c_v;
+    Eigen::Matrix3d C_c_v_;
+    Eigen::Vector3d rho_v_c_v_;
 
     // stero camera intrinsics
-    double _b;
-    double _cu;
-    double _cv;
-    double _fu;
-    double _fv;
+    double b_;
+    double cu_;
+    double cv_;
+    double fu_;
+    double fv_;
 
     // covariance
-    Eigen::Vector3d _v_var;
-    Eigen::Vector3d _w_var;
-    Eigen::Vector4d _y_var;
+    Eigen::Vector3d v_var_;
+    Eigen::Vector3d w_var_;
+    Eigen::Vector4d y_var_;
 
     // landmarks
-    Eigen::Matrix<double, 20, 3> _landmarks3dPts;
+    Utils::Landmark3DPts landmarks3dPts_;
 };
 
 #endif  // SOLUTION04_INCLUDE_PARAMSERVER_H
