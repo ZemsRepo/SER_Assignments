@@ -108,7 +108,7 @@ def main():
             # ground truth
             gt_pose_msg = MyPose()
             ## header
-            gt_pose_msg.header.frame_id = "inertial_frame"
+            gt_pose_msg.header.frame_id = "vehicle"
             gt_pose_msg.header.stamp = timestamp
             ## rotation
             gt_pose_msg.theta.x = theta_vk_i[k][0]
@@ -122,7 +122,7 @@ def main():
             # imu
             imu_msg = MyImu()
             ## header
-            imu_msg.header.frame_id = "vehicle_frame"
+            imu_msg.header.frame_id = "vehicle"
             imu_msg.header.stamp = timestamp
             ## angular velocity
             imu_msg.angular_velocity.x = w_vk_vk_i[k][0]
@@ -136,7 +136,7 @@ def main():
             # stereo camera
             imgPts_msg = ImgPts()
             ## header
-            imgPts_msg.header.frame_id = "camera_frame"
+            imgPts_msg.header.frame_id = "camera"
             imgPts_msg.header.stamp = timestamp
             ## landmarks
             left_points = [Pixel(round(p[0]), round(p[1])) for p in y_k_j[k]]

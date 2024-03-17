@@ -11,7 +11,7 @@ class ParamServer {
    protected:
     ros::NodeHandle nh_;
 
-    // vehicle_frame to camera_frame
+    // vehicle frame to camera frame
     Eigen::Matrix3d C_c_v_;
     Eigen::Vector3d rho_v_c_v_;
 
@@ -21,6 +21,9 @@ class ParamServer {
     double cv_;
     double fu_;
     double fv_;
+
+    u_int16_t imgHeight_;
+    u_int16_t imgWidth_;
 
     // covariance
     Eigen::Vector3d v_var_;

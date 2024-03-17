@@ -14,11 +14,15 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   message_generation
+  cv_bridge
 )
 
 set(3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd_party)
 set(ESTIMATOR_NODE estimator)
+
 find_package(Eigen3 REQUIRED PATHS ${3RD_PARTY_DIR}/eigen-3.4.0 NO_DEFAULT_PATH)
+find_package(OpenCV REQUIRED)
+find_package(PCL REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -129,7 +133,7 @@ include_directories(
 # include
   ${PROJECT_SOURCE_DIR}/include
   ${catkin_INCLUDE_DIRS}
-
+  ${PCL_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library

@@ -5,9 +5,14 @@
 #include "utils.h"
 
 class Estimator : ParamServer {
+    using Imu = Utils::Imu;
+    using ImgPts = Utils::ImgPts;
+    using Pose = Utils::Pose;
+
    public:
     Estimator();
     ~Estimator();
+    void run();
 
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr &msg);
@@ -19,12 +24,27 @@ class Estimator : ParamServer {
     ros::Subscriber gtPoseSub_;
     ros::Subscriber imgPtsSub_;
 
-    // data array
-    std::vector<Utils::ImuPtr> imuArray_;
-    std::vector<Utils::ImgPtsPtr> imgPtsArray_;
-    std::vector<Utils::PosePtr> estPoseArray_;
-    std::vector<Utils::PosePtr> gtPoseArray_;
+    // publisher
+    ros::Publisher imgPubLeft_;
+    ros::Publisher imgPubRight_;
+    ros::Publisher pclPub_;
 
+    // data array
+    std::vector<Imu::Ptr> imuArray_;
+    std::vector<ImgPts::Ptr> imgPtsArray_;
+    std::vector<Pose::Ptr> estPoseArray_;
+    std::vector<Pose::Ptr> gtPoseArray_;
+
+    int minIdx_;
+    int maxIdx_;
+    int processInterval_;
+    int frame_;
+
+    bool lastImuFlag_;
+    bool lastImgPtsFlag_;
+    bool lastGtPoseFlag_;
+    
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudToPub_;
 };
 
 #endif  // SOLUTION04_INCLUDE_ESTIMATOR_H

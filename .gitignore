@@ -1,6 +1,8 @@
 .DS_Store
 .venv
 .vscode
+.catkin_tools
+logs
 devel
 build
 *.yaml
