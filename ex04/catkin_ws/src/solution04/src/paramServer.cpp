@@ -1,6 +1,6 @@
 #include "paramServer.h"
 
-ParamServer::ParamServer(){
+ParamServer::ParamServer() {
     std::vector<double> landmarks3dPts_v;
     std::vector<double> C_c_v_v;
     std::vector<double> rho_v_c_v_v;
@@ -29,23 +29,16 @@ ParamServer::ParamServer(){
     nh_.param("covariance/y_var", y_var_v, std::vector<double>(4, 0.0));
 
     // std::vector to eigen
-    landmarks3dPts_ =
-        Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-            landmarks3dPts_v.data(), 20, 3);
-    C_c_v_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-        C_c_v_v.data(), 3, 3);
+    landmarks3dPts_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
+        landmarks3dPts_v.data(), 20, 3);
+    C_c_v_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(C_c_v_v.data(), 3, 3);
     rho_v_c_v_ =
-        Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-            rho_v_c_v_v.data(), 3, 1);
-    v_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-        v_var_v.data(), 3, 1);
-    w_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-        w_var_v.data(), 3, 1);
-    y_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
-        y_var_v.data(), 4, 1);
+        Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(rho_v_c_v_v.data(), 3, 1);
+    v_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(v_var_v.data(), 3, 1);
+    w_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(w_var_v.data(), 3, 1);
+    y_var_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(y_var_v.data(), 4, 1);
 
     if (Utils::kDebug) {
-
         ROS_INFO_STREAM("C_c_v: \n" << C_c_v_);
         ROS_INFO_STREAM("rho_v_c_v: \n" << rho_v_c_v_);
         ROS_INFO_STREAM("v_var: \n" << v_var_);

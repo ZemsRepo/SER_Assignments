@@ -13,8 +13,10 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   geometry_msgs
+  nav_msgs
   message_generation
   cv_bridge
+  tf2_ros
 )
 
 set(3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd_party)
@@ -119,7 +121,14 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES solution04
- CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs message_runtime 
+ CATKIN_DEPENDS 
+ roscpp 
+ rospy 
+ std_msgs 
+ sensor_msgs 
+ geometry_msgs 
+ message_runtime 
+ tf2_ros
 #  DEPENDS system_lib
 )
 

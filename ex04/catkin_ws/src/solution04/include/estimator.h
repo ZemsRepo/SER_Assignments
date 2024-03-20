@@ -27,7 +27,14 @@ class Estimator : ParamServer {
     // publisher
     ros::Publisher imgPubLeft_;
     ros::Publisher imgPubRight_;
-    ros::Publisher pclPub_;
+    ros::Publisher gtPclCamPub_;
+    ros::Publisher gtPclWorldPub_;
+    ros::Publisher gtTrajPub_;
+    ros::Publisher gtPosePub_;
+
+    // tf broadcaster
+    tf2_ros::TransformBroadcaster br_;
+    tf2_ros::StaticTransformBroadcaster staticBr_;
 
     // data array
     std::vector<Imu::Ptr> imuArray_;
@@ -43,8 +50,9 @@ class Estimator : ParamServer {
     bool lastImuFlag_;
     bool lastImgPtsFlag_;
     bool lastGtPoseFlag_;
-    
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudToPub_;
+
+    nav_msgs::Path gtTraj_;
+    nav_msgs::Path estTraj_;
 };
 
 #endif  // SOLUTION04_INCLUDE_ESTIMATOR_H
