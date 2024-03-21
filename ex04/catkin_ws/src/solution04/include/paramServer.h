@@ -22,9 +22,6 @@ class ParamServer {
     double fu_;
     double fv_;
 
-    u_int16_t imgHeight_;
-    u_int16_t imgWidth_;
-
     // covariance
     Eigen::Vector3d v_var_;
     Eigen::Vector3d w_var_;

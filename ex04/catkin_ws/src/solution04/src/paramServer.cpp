@@ -20,9 +20,6 @@ ParamServer::ParamServer() {
     nh_.param("intrinsics/fu", fu_, 0.0);
     nh_.param("intrinsics/fv", fv_, 0.0);
 
-    imgHeight_ = 480;
-    imgWidth_ = 640;
-
     // covariance
     nh_.param("covariance/v_var", v_var_v, std::vector<double>(3, 0.0));
     nh_.param("covariance/w_var", w_var_v, std::vector<double>(3, 0.0));

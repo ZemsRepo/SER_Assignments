@@ -15,9 +15,10 @@ class Estimator : ParamServer {
     void run();
 
    private:
-    void imuCallBack(const solution04::MyImu::ConstPtr &msg);
-    void imgPtsCallBack(const solution04::ImgPts::ConstPtr &msg);
-    void gtPoseCallBack(const solution04::MyPose::ConstPtr &msg);
+    void imuCallBack(const solution04::MyImu::ConstPtr& msg);
+    void imgPtsCallBack(const solution04::ImgPts::ConstPtr& msg);
+    void gtPoseCallBack(const solution04::MyPose::ConstPtr& msg);
+
 
     // subscriber
     ros::Subscriber imuSub_;

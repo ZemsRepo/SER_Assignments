@@ -25,6 +25,9 @@ namespace Utils {
 
 constexpr bool kDebug = 0;
 
+constexpr int imgWidth = 640;
+constexpr int imgHeight = 480;
+
 struct Imu {
     using Ptr = std::shared_ptr<Imu>;
     double t;
@@ -51,7 +54,25 @@ void fromROSMsg(const solution04::MyImu::ConstPtr &msg, Imu::Ptr imu);
 void fromROSMsg(const solution04::MyPose::ConstPtr &msg, Pose::Ptr pose);
 void fromROSMsg(const solution04::ImgPts::ConstPtr &msg, ImgPts::Ptr imgPts);
 
+void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
+                        const Eigen::Vector3d &r, const ros::Time &time);
+
+void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+                       const ros::Time &time, const std::string &frame_id);
+
+void publishImage(const ros::Publisher &leftPub, const ros::Publisher &rightPub,
+                  const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time);
+
+void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
+                          const Eigen::Vector3d &r, const ros::Time &time);
+
+void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
+                              const Eigen::Matrix3d &C_c_v, const Eigen::Vector3d &rho_v_c_v,
+                              const ros::Time &time);
+
 Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d &v);
-void vec2rotMat(const Eigen::Vector3d &v , Eigen::Matrix3d &rotMat);
+
+void vec2rotMat(const Eigen::Vector3d &v, Eigen::Matrix3d &rotMat);
+
 }  // namespace Utils
 #endif  // SOLUTION04_INCLUDE_UTILS_H
