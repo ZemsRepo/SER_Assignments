@@ -13,8 +13,8 @@
 #include <solution04/ImgPts.h>
 #include <solution04/MyImu.h>
 #include <solution04/MyPose.h>
-#include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/static_transform_broadcaster.h>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include <eigen3/Eigen/Dense>
 #include <memory>
@@ -51,5 +51,7 @@ void fromROSMsg(const solution04::MyImu::ConstPtr &msg, Imu::Ptr imu);
 void fromROSMsg(const solution04::MyPose::ConstPtr &msg, Pose::Ptr pose);
 void fromROSMsg(const solution04::ImgPts::ConstPtr &msg, ImgPts::Ptr imgPts);
 
+Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d &v);
+void vec2rotMat(const Eigen::Vector3d &v , Eigen::Matrix3d &rotMat);
 }  // namespace Utils
 #endif  // SOLUTION04_INCLUDE_UTILS_H

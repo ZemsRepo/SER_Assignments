@@ -13,9 +13,6 @@ Estimator::Estimator() : ParamServer() {
     imgPubLeft_ = nh_.advertise<sensor_msgs::Image>("/img_left", 2);
     imgPubRight_ = nh_.advertise<sensor_msgs::Image>("/img_right", 2);
 
-    // initialize the path
-    gtTraj_.header.frame_id = "world";
-
     // buffer
     minIdx_ = 1215 - 1;
     maxIdx_ = 1714 - 1;
@@ -49,16 +46,15 @@ void Estimator::imuCallBack(const solution04::MyImu::ConstPtr &msg) {
 void Estimator::imgPtsCallBack(const solution04::ImgPts::ConstPtr &msg) {
     ImgPts::Ptr imgPts = std::make_shared<ImgPts>();
     imgPts->t = msg->header.stamp.toSec();
-    auto *pt = &imgPts->pts;
     for (int i = 0; i < 20; i++) {
-        (*pt)(i, 0) = msg->left[i].x;
-        (*pt)(i, 1) = msg->left[i].y;
-        (*pt)(i, 2) = msg->right[i].x;
-        (*pt)(i, 3) = msg->right[i].y;
+        imgPts->pts(i, 0) = msg->left[i].x;
+        imgPts->pts(i, 1) = msg->left[i].y;
+        imgPts->pts(i, 2) = msg->right[i].x;
+        imgPts->pts(i, 3) = msg->right[i].y;
     }
     imgPtsArray_.push_back(imgPts);
     lastImgPtsFlag_ = true;
-    if (Utils::kDebug) ROS_INFO_STREAM("imgPts: \n" << *pt);
+    if (Utils::kDebug) ROS_INFO_STREAM("imgPts: \n" << imgPts->pts);
 }
 
 void Estimator::gtPoseCallBack(const solution04::MyPose::ConstPtr &msg) {
@@ -79,74 +75,72 @@ void Estimator::gtPoseCallBack(const solution04::MyPose::ConstPtr &msg) {
                         << pose->r);
 }
 
+
+
+
 void Estimator::run() {
     if (lastImuFlag_ && lastImgPtsFlag_ && lastGtPoseFlag_) {
         lastImuFlag_ = false;
         lastImgPtsFlag_ = false;
         lastGtPoseFlag_ = false;
         int size = std::min({imuArray_.size(), imgPtsArray_.size(), gtPoseArray_.size()});
-        
+
         auto thisGtPose = gtPoseArray_[frame_];
         Eigen::Vector3d r_i_vk_i = thisGtPose->r;
-        ros::Time timePose(thisGtPose->t);
-
-        double roll = thisGtPose->theta(0);
-        double pitch = thisGtPose->theta(1);
-        double yaw = thisGtPose->theta(2);
+        ros::Time timeGtPose(thisGtPose->t);
+        
         Eigen::Matrix3d C_vk_i;
-        C_vk_i = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-                 Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-                 Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+        Utils::vec2rotMat(thisGtPose->theta, C_vk_i);
 
-        Eigen::Quaterniond quaternion(C_vk_i);
-
-        Eigen::Vector3d euler_angles = C_c_v_.eulerAngles(2, 1, 0);
-        ROS_INFO_STREAM_ONCE("roll: " << euler_angles(2) * 180 / M_PI
-                                      << " pitch: " << euler_angles(1) * 180 / M_PI
-                                      << " yaw: " << euler_angles(0) * 180 / M_PI);
+        Eigen::Quaterniond Q_vk_i(C_vk_i);
+        Eigen::Quaterniond Q_vk_i_inv = Q_vk_i.inverse();
 
         // TODO: publish GT trajectory
+        static nav_msgs::Path gtTraj;
+        gtTraj.header.frame_id = "world";
+
         geometry_msgs::PoseStamped gtPoseMsg;
-        gtPoseMsg.header.stamp = timePose;
+        gtPoseMsg.header.stamp = timeGtPose;
         gtPoseMsg.header.frame_id = "world";
         gtPoseMsg.pose.position.x = r_i_vk_i.x();
         gtPoseMsg.pose.position.y = r_i_vk_i.y();
         gtPoseMsg.pose.position.z = r_i_vk_i.z();
-        gtPoseMsg.pose.orientation.x = quaternion.x();
-        gtPoseMsg.pose.orientation.y = quaternion.y();
-        gtPoseMsg.pose.orientation.z = quaternion.z();
-        gtPoseMsg.pose.orientation.w = quaternion.w();
-        gtTraj_.poses.push_back(gtPoseMsg);
-        gtTrajPub_.publish(gtTraj_);
+        gtPoseMsg.pose.orientation.x = Q_vk_i_inv.x();
+        gtPoseMsg.pose.orientation.y = Q_vk_i_inv.y();
+        gtPoseMsg.pose.orientation.z = Q_vk_i_inv.z();
+        gtPoseMsg.pose.orientation.w = Q_vk_i_inv.w();
+        gtTraj.poses.push_back(gtPoseMsg);
+        gtTrajPub_.publish(gtTraj);
         gtPosePub_.publish(gtPoseMsg);
 
         // TODO: broadcast tf (world -> vehicle)
         geometry_msgs::TransformStamped world2VehTrans;
-        world2VehTrans.header.stamp = timePose;
+        world2VehTrans.header.stamp = timeGtPose;
         world2VehTrans.header.frame_id = "world";
         world2VehTrans.child_frame_id = "vehicle";
         world2VehTrans.transform.translation.x = r_i_vk_i.x();
         world2VehTrans.transform.translation.y = r_i_vk_i.y();
         world2VehTrans.transform.translation.z = r_i_vk_i.z();
-        world2VehTrans.transform.rotation.x = quaternion.x();
-        world2VehTrans.transform.rotation.y = quaternion.y();
-        world2VehTrans.transform.rotation.z = quaternion.z();
-        world2VehTrans.transform.rotation.w = quaternion.w();
+        world2VehTrans.transform.rotation.x = Q_vk_i_inv.x();
+        world2VehTrans.transform.rotation.y = Q_vk_i_inv.y();
+        world2VehTrans.transform.rotation.z = Q_vk_i_inv.z();
+        world2VehTrans.transform.rotation.w = Q_vk_i_inv.w();
         br_.sendTransform(world2VehTrans);
 
         // TODO: broadcast static tf (vehicle -> camera)
-        geometry_msgs::TransformStamped veh2CamTrans;
-        veh2CamTrans.header.stamp = timePose;
+        static Eigen::Quaterniond Q_c_v(C_c_v_);
+        static Eigen::Quaterniond Q_c_v_inv = Q_c_v.inverse();
+        static geometry_msgs::TransformStamped veh2CamTrans;
+        veh2CamTrans.header.stamp = timeGtPose;
         veh2CamTrans.header.frame_id = "vehicle";
         veh2CamTrans.child_frame_id = "camera";
         veh2CamTrans.transform.translation.x = rho_v_c_v_.x();
         veh2CamTrans.transform.translation.y = rho_v_c_v_.y();
         veh2CamTrans.transform.translation.z = rho_v_c_v_.z();
-        static Eigen::Quaterniond q(C_c_v_);
-        veh2CamTrans.transform.rotation.x = q.x();
-        veh2CamTrans.transform.rotation.y = q.y();
-        veh2CamTrans.transform.rotation.z = q.z();
-        veh2CamTrans.transform.rotation.w = q.w();
+        veh2CamTrans.transform.rotation.x = Q_c_v_inv.x();
+        veh2CamTrans.transform.rotation.y = Q_c_v_inv.y();
+        veh2CamTrans.transform.rotation.z = Q_c_v_inv.z();
+        veh2CamTrans.transform.rotation.w = Q_c_v_inv.w();
         staticBr_.sendTransform(veh2CamTrans);
 
         // TODO: visualize the GT pcl (world frame)
@@ -165,11 +159,10 @@ void Estimator::run() {
 
         sensor_msgs::PointCloud2 pclWorldMsg;
         pcl::toROSMsg(*gtCloudWorld, pclWorldMsg);
-        pclWorldMsg.header.stamp = timePose;
+        pclWorldMsg.header.stamp = timeGtPose;
         gtPclWorldPub_.publish(pclWorldMsg);
 
-        
-        // FIXME: visualize the GT pcl (camera frame)
+        // TODO: visualize the GT pcl (camera frame)
         static pcl::PointCloud<pcl::PointXYZ>::Ptr gtCloudCam(new pcl::PointCloud<pcl::PointXYZ>);
         gtCloudCam->width = 20;
         gtCloudCam->height = 1;
@@ -180,7 +173,7 @@ void Estimator::run() {
         for (int i = 0; i < 20; i++) {
             Eigen::Vector3d p_ck_pj_ck;
             Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
-            p_ck_pj_ck = C_c_v_ * C_vk_i * (rho_i_pj_i - r_i_vk_i) - rho_v_c_v_;
+            p_ck_pj_ck = C_c_v_ * (C_vk_i * (rho_i_pj_i - r_i_vk_i) - rho_v_c_v_);
             gtCloudCam->points[i].x = p_ck_pj_ck.x();
             gtCloudCam->points[i].y = p_ck_pj_ck.y();
             gtCloudCam->points[i].z = p_ck_pj_ck.z();
@@ -188,10 +181,8 @@ void Estimator::run() {
 
         sensor_msgs::PointCloud2 pclCamMsg;
         pcl::toROSMsg(*gtCloudCam, pclCamMsg);
-        pclCamMsg.header.stamp = timePose;
+        pclCamMsg.header.stamp = timeGtPose;
         gtPclCamPub_.publish(pclCamMsg);
-
-
 
         // TODO: visualize image points
         auto thisImgPts = imgPtsArray_[frame_];

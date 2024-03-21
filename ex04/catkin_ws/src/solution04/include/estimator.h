@@ -51,7 +51,6 @@ class Estimator : ParamServer {
     bool lastImgPtsFlag_;
     bool lastGtPoseFlag_;
 
-    nav_msgs::Path gtTraj_;
     nav_msgs::Path estTraj_;
 };
 
