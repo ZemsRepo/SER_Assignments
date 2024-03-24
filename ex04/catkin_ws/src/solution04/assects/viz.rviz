@@ -3,9 +3,7 @@ Panels:
     Help Height: 138
     Name: Displays
     Property Tree Widget:
-      Expanded:
-        - /Grid1
-        - /Grid1/Offset1
+      Expanded: ~
       Splitter Ratio: 0.6044657230377197
     Tree Height: 1702
   - Class: rviz/Selection
@@ -161,6 +159,14 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /gt_point_cloud_world_markers
+      Name: gt pcl world marker
+      Namespaces:
+        world: true
+      Queue Size: 100
+      Value: true
     - Class: rviz/Image
       Enabled: true
       Image Topic: /img_left
@@ -225,14 +231,6 @@ Visualization Manager:
       Topic: /gt_pose1
       Unreliable: false
       Value: false
-    - Class: rviz/MarkerArray
-      Enabled: true
-      Marker Topic: /gt_point_cloud_left_vis_markers
-      Name: MarkerArray
-      Namespaces:
-        world: true
-      Queue Size: 100
-      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -261,7 +259,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 4.258998870849609
+      Distance: 3.2038650512695312
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -269,17 +267,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 2.8412134647369385
-        Y: 1.3188470602035522
-        Z: 0.9677107334136963
+        X: 2.9006152153015137
+        Y: 1.3005203008651733
+        Z: 1.0008304119110107
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8747968673706055
+      Pitch: 1.0647966861724854
       Target Frame: <Fixed Frame>
-      Yaw: 4.706780910491943
+      Yaw: 4.711781024932861
     Saved: ~
 Window Geometry:
   Displays:

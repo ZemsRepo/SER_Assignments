@@ -2,12 +2,6 @@
 
 namespace Utils {
 
-void fromROSMsg(const solution04::MyImu::ConstPtr &msg, Imu::Ptr imu) {}
-
-void fromROSMsg(const solution04::MyPose::ConstPtr &msg, Pose::Ptr pose) {}
-
-void fromROSMsg(const solution04::ImgPts::ConstPtr &msg, ImgPts::Ptr imgPts) {}
-
 void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time) {
     Eigen::Quaterniond Q(C);
@@ -50,110 +44,43 @@ void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks
     pub.publish(cloudMsg);
 }
 
-void publishPointCloud(const ros::Publisher &pubLeft, const ros::Publisher &pubRight,
-                       const Landmark3DPts &landmarks, const Eigen::Matrix<double, 20, 4> &imgPts,
-                       const ros::Time &time, const std::string &frame_id) {
-    // publish left visible pcl
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudLeft(new pcl::PointCloud<pcl::PointXYZ>);
-    cloudLeft->width = 20;
-    cloudLeft->height = 1;
-    cloudLeft->is_dense = false;
-    cloudLeft->points.resize(cloudLeft->width * cloudLeft->height);
-    cloudLeft->header.frame_id = frame_id;
+void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+                       const Eigen::Matrix<double, 20, 2> &imgPtsNomo, const ros::Time &time,
+                       const std::string &frame_id) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    cloud->width = 20;
+    cloud->height = 1;
+    cloud->is_dense = false;
+    cloud->points.resize(cloud->width * cloud->height);
+    cloud->header.frame_id = frame_id;
 
     for (int i = 0; i < 20; i++) {
-        if (imgPts(i, 0) == -1) continue;
-        cloudLeft->points[i].x = landmarks.row(i).x();
-        cloudLeft->points[i].y = landmarks.row(i).y();
-        cloudLeft->points[i].z = landmarks.row(i).z();
+        if (imgPtsNomo(i, 0) == -1) continue;
+        cloud->points[i].x = landmarks.row(i).x();
+        cloud->points[i].y = landmarks.row(i).y();
+        cloud->points[i].z = landmarks.row(i).z();
     }
 
-    sensor_msgs::PointCloud2 leftCloudMsg;
-    pcl::toROSMsg(*cloudLeft, leftCloudMsg);
-    leftCloudMsg.header.stamp = time;
-    pubLeft.publish(leftCloudMsg);
-
-    // publish right visible pcl
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudRight(new pcl::PointCloud<pcl::PointXYZ>);
-    cloudRight->width = 20;
-    cloudRight->height = 1;
-    cloudRight->is_dense = false;
-    cloudRight->points.resize(cloudRight->width * cloudRight->height);
-    cloudRight->header.frame_id = frame_id;
-
-    for (int i = 0; i < 20; i++) {
-        if (imgPts(i, 2) == -1) continue;
-        cloudRight->points[i].x = landmarks.row(i).x();
-        cloudRight->points[i].y = landmarks.row(i).y();
-        cloudRight->points[i].z = landmarks.row(i).z();
-    }
-
-    sensor_msgs::PointCloud2 rightCloudMsg;
-    pcl::toROSMsg(*cloudRight, rightCloudMsg);
-    rightCloudMsg.header.stamp = time;
-    pubRight.publish(rightCloudMsg);
+    sensor_msgs::PointCloud2 cloudMsg;
+    pcl::toROSMsg(*cloud, cloudMsg);
+    cloudMsg.header.stamp = time;
+    pub.publish(cloudMsg);
 }
 
-void publishImage(const ros::Publisher &leftPub, const ros::Publisher &rightPub,
-                  const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time) {
-    cv::Mat imgLeft = cv::Mat::zeros(cv::Size(imgWidth, imgHeight), CV_8UC3);
-    cv::Mat imgRight = cv::Mat::zeros(cv::Size(imgWidth, imgHeight), CV_8UC3);
+void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
+                  const cv::Scalar &color, const ros::Time &time, const std::string &frame_id) {
+    cv::Mat img = cv::Mat::zeros(cv::Size(imgWidth, imgHeight), CV_8UC3);
     for (int i = 0; i < 20; i++) {
-        if (imgPts(i, 0) != -1) {
-            cv::circle(imgLeft, cv::Point(imgPts(i, 0), imgPts(i, 1)), 5, cv::Scalar(0, 0, 164),
-                       -1);
-            cv::putText(imgLeft, std::to_string(i + 1), cv::Point(imgPts(i, 0), imgPts(i, 1)),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
-        }
-        if (imgPts(i, 2) != -1) {
-            cv::circle(imgRight, cv::Point(imgPts(i, 2), imgPts(i, 3)), 5, cv::Scalar(135, 74, 32),
-                       -1);
-            cv::putText(imgRight, std::to_string(i + 1), cv::Point(imgPts(i, 2), imgPts(i, 3)),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
-        }
+        if (imgPtsMono(i, 0) == -1) continue;
+        cv::circle(img, cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)), 5, color, -1);
+        cv::putText(img, std::to_string(i + 1), cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
     }
     auto header = std_msgs::Header();
     header.stamp = time;
     header.frame_id = "camera";
-    sensor_msgs::ImagePtr imgMsgLeft = cv_bridge::CvImage(header, "bgr8", imgLeft).toImageMsg();
-    sensor_msgs::ImagePtr imgMsgRight = cv_bridge::CvImage(header, "bgr8", imgRight).toImageMsg();
-    leftPub.publish(imgMsgLeft);
-    rightPub.publish(imgMsgRight);
-}
-
-void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
-                        const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time,
-                        const std::string &frame_id) {
-    static visualization_msgs::MarkerArray marker_array;
-    marker_array.markers.resize(20);
-    marker_array.markers.clear();
-
-    for (int i = 0; i < 20; i++) {
-        visualization_msgs::Marker marker;
-        marker.header.frame_id = frame_id;
-        marker.header.stamp = time;
-        marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-        marker.action = visualization_msgs::Marker::ADD;
-        marker.pose.position.x = landmarks.row(i).x();
-        marker.pose.position.y = landmarks.row(i).y();
-        marker.pose.position.z = landmarks.row(i).z() - 0.1;
-        marker.pose.orientation.x = 0.0;
-        marker.pose.orientation.y = 0.0;
-        marker.pose.orientation.z = 0.0;
-        marker.pose.orientation.w = 1.0;
-        marker.scale.z = 0.05;
-        marker.color.a = 1.0;
-        marker.color.r = 1.0;
-        marker.color.g = 1.0;
-        marker.color.b = 1.0;
-        marker.id = i;
-        marker.lifetime = ros::Duration();
-        std::stringstream ss;
-        ss << i + 1;
-        marker.text = imgPts(i, 0) == -1 ? " " : ss.str();
-        marker_array.markers.push_back(marker);
-    }
-    pub.publish(marker_array);
+    sensor_msgs::ImagePtr imgMsg = cv_bridge::CvImage(header, "bgr8", img).toImageMsg();
+    pub.publish(imgMsg);
 }
 
 void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,

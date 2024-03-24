@@ -52,9 +52,6 @@ struct ImgPts {
 
 using Landmark3DPts = Eigen::Matrix<double, 20, 3>;
 
-void fromROSMsg(const solution04::MyImu::ConstPtr &msg, Imu::Ptr imu);
-void fromROSMsg(const solution04::MyPose::ConstPtr &msg, Pose::Ptr pose);
-void fromROSMsg(const solution04::ImgPts::ConstPtr &msg, ImgPts::Ptr imgPts);
 
 void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time);
@@ -62,16 +59,12 @@ void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
 void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
                        const ros::Time &time, const std::string &frame_id);
 
-void publishPointCloud(const ros::Publisher &pubLeft, const ros::Publisher &pubRight,
-                       const Landmark3DPts &landmarks, const Eigen::Matrix<double, 20, 4> &imgPts,
-                       const ros::Time &time, const std::string &frame_id);
+void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+                       const Eigen::Matrix<double, 20, 2> &imgPtsNomo, const ros::Time &time,
+                       const std::string &frame_id);
 
-void publishImage(const ros::Publisher &leftPub, const ros::Publisher &rightPub,
-                  const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time);
-
-void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
-                        const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time,
-                        const std::string &frame_id);
+void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
+                  const cv::Scalar &color, const ros::Time &time, const std::string &frame_id);
 
 void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
                         const ros::Time &time, const std::string &frame_id);

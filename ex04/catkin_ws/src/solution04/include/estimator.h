@@ -30,11 +30,9 @@ class Estimator : ParamServer {
     ros::Publisher imgPubRight_;
     ros::Publisher leftCamVisibleGtPclPub_;
     ros::Publisher rightCamVisibleGtPclPub_;
-    ros::Publisher leftCamVisibleGtPclMarkerPub_;
-    ros::Publisher rightCamVisibleGtPclMarkerPub_;
+    ros::Publisher gtPclWorldMarkerPub_;
     ros::Publisher gtPclWorldPub_;
     ros::Publisher gtTrajPub_;
-    ros::Publisher gtPosePub_;
 
     // tf broadcaster
     tf2_ros::TransformBroadcaster br_;

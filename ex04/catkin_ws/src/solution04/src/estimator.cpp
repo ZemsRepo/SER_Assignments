@@ -10,14 +10,11 @@ Estimator::Estimator() : ParamServer() {
     rightCamVisibleGtPclPub_ =
         nh_.advertise<sensor_msgs::PointCloud2>("/gt_point_cloud_right_vis", 2);
 
-    leftCamVisibleGtPclMarkerPub_ =
-        nh_.advertise<visualization_msgs::MarkerArray>("/gt_point_cloud_left_vis_markers", 2);
-    rightCamVisibleGtPclMarkerPub_ =
-        nh_.advertise<visualization_msgs::MarkerArray>("/gt_point_cloud_right_vis_markers", 2);
-
     gtPclWorldPub_ = nh_.advertise<sensor_msgs::PointCloud2>("/gt_point_cloud_world", 2);
+    gtPclWorldMarkerPub_ =
+        nh_.advertise<visualization_msgs::MarkerArray>("/gt_point_cloud_world_markers", 2);
+
     gtTrajPub_ = nh_.advertise<nav_msgs::Path>("/gt_trajectory", 2);
-    gtPosePub_ = nh_.advertise<geometry_msgs::PoseStamped>("/gt_pose1", 2);
 
     imgPubLeft_ = nh_.advertise<sensor_msgs::Image>("/img_left", 2);
     imgPubRight_ = nh_.advertise<sensor_msgs::Image>("/img_right", 2);
@@ -109,22 +106,28 @@ void Estimator::run() {
             landmarks3dPtsCam.row(i) = p_ck_pj_ck;
         }
 
-        // TODO: publish visible landmarks (for both left and right cameras)
-
         // publish ground truth
         Utils::broadcastWorld2VehTF(br_, C_vk_i, r_i_vk_i, timeGtPose);
         Utils::broadcastStaticVeh2CamTF(staticBr_, C_c_v_, rho_v_c_v_, timeGtPose);
 
         Utils::publish_trajectory(gtTrajPub_, C_vk_i, r_i_vk_i, timeGtPose);
         Utils::publishPointCloud(gtPclWorldPub_, landmarks3dPts_, timeGtPose, "world");
-        Utils::publishPointCloud(leftCamVisibleGtPclPub_, rightCamVisibleGtPclPub_,
-                                 landmarks3dPtsCam, thisImgPts->pts, timeGtPose, "camera");
 
-        Utils::publishMarkerArray(leftCamVisibleGtPclMarkerPub_, landmarks3dPts_, timeGtPose,
-                                  "world");
-        Utils::publishImage(imgPubLeft_, imgPubRight_, thisImgPts->pts, timeImgPts);
+        Utils::publishPointCloud(leftCamVisibleGtPclPub_, landmarks3dPtsCam,
+                                 thisImgPts->pts.block(0, 0, 20, 2), timeGtPose, "camera");
 
-        ROS_INFO("frame: %d", frame_);
+        Utils::publishPointCloud(rightCamVisibleGtPclPub_, landmarks3dPtsCam,
+                                 thisImgPts->pts.block(0, 2, 20, 2), timeGtPose, "camera");
+
+        Utils::publishImage(imgPubLeft_, thisImgPts->pts.block(0, 0, 20, 2), cv::Scalar(0, 0, 164),
+                            timeImgPts, "camera");
+
+        Utils::publishImage(imgPubRight_, thisImgPts->pts.block(0, 2, 20, 2),
+                            cv::Scalar(135, 74, 32), timeImgPts, "camera");
+
+        Utils::publishMarkerArray(gtPclWorldMarkerPub_, landmarks3dPts_, timeGtPose, "world");
+
+        ROS_INFO("frame: %d", frame_ + 1);
 
         ++frame_;
 
