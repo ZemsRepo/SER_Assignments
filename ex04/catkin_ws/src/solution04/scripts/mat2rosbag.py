@@ -16,11 +16,11 @@ mat = loadmat(mat_file)
 t = mat["t"].reshape(-1).tolist()  # (1, 1900) time
 
 # ground truth
-theta_vk_i = mat["theta_vk_i"].T.tolist()  # (3, 1900) gt axis angle
+theta_vk_i = mat["theta_vk_i"].T.tolist()  # (3, 1900) gt rotation vector (lie algebra)
 r_i_vk_i = mat["r_i_vk_i"].T.tolist()  # (3, 1900) gt translation
 
 # imu
-w_vk_vk_i = mat["w_vk_vk_i"].T.tolist()  # (3, 1900) imu angular velocity
+w_vk_vk_i = mat["w_vk_vk_i"].T.tolist()  # (3, 1900) imu angular velocity (lie algebra)
 w_var = (
     mat["w_var"]
     .reshape(
@@ -50,8 +50,9 @@ rho_i_pj_i = (
 
 # stereo camera
 y_k_j = (
-    mat["y_k_j"].reshape(4, 20, -1).T.tolist()
+    mat["y_k_j"].transpose(1, 2, 0).tolist()
 )  # (4, 1900, 20) stereo camera observation
+
 y_var = (
     mat["y_var"]
     .reshape(
@@ -61,8 +62,8 @@ y_var = (
 )  # (4, 1) stereo camera observation variance
 
 # extrinsics
-# C_c_v = mat["C_c_v"].tolist()  # (3, 3) rotation vehicle -> frame
-C_c_v = mat["C_c_v"].reshape(-1,).tolist()  # (3, 3) rotation vehicle -> frame
+# C_c_v = mat["C_c_v"].tolist()  # (3, 3) rotation vehicle -> camera
+C_c_v = mat["C_c_v"].reshape(-1,).tolist()  # (3, 3) rotation vehicle -> camera
 
 rho_v_c_v = (
     mat["rho_v_c_v"]
@@ -70,7 +71,7 @@ rho_v_c_v = (
         3,
     )
     .tolist()
-)  # (3, 1) translation vehicle -> frame
+)  # (3, 1) translation vehicle -> camera
 
 # camera intrinsics
 fu = mat["fu"].item()  # (1, 1) horizontal focal length

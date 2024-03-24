@@ -28,7 +28,10 @@ class Estimator : ParamServer {
     // publisher
     ros::Publisher imgPubLeft_;
     ros::Publisher imgPubRight_;
-    ros::Publisher gtPclCamPub_;
+    ros::Publisher leftCamVisibleGtPclPub_;
+    ros::Publisher rightCamVisibleGtPclPub_;
+    ros::Publisher leftCamVisibleGtPclMarkerPub_;
+    ros::Publisher rightCamVisibleGtPclMarkerPub_;
     ros::Publisher gtPclWorldPub_;
     ros::Publisher gtTrajPub_;
     ros::Publisher gtPosePub_;

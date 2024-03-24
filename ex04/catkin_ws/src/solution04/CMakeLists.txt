@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs
   message_generation
+  visualization_msgs
   cv_bridge
   tf2_ros
 )
@@ -128,6 +129,7 @@ catkin_package(
  sensor_msgs 
  geometry_msgs 
  message_runtime 
+ visualization_msgs
  tf2_ros
 #  DEPENDS system_lib
 )

@@ -15,6 +15,8 @@
 #include <solution04/MyPose.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 #include <eigen3/Eigen/Dense>
 #include <memory>
@@ -60,8 +62,19 @@ void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
 void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
                        const ros::Time &time, const std::string &frame_id);
 
+void publishPointCloud(const ros::Publisher &pubLeft, const ros::Publisher &pubRight,
+                       const Landmark3DPts &landmarks, const Eigen::Matrix<double, 20, 4> &imgPts,
+                       const ros::Time &time, const std::string &frame_id);
+
 void publishImage(const ros::Publisher &leftPub, const ros::Publisher &rightPub,
                   const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time);
+
+void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+                        const Eigen::Matrix<double, 20, 4> &imgPts, const ros::Time &time,
+                        const std::string &frame_id);
+
+void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+                        const ros::Time &time, const std::string &frame_id);
 
 void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
                           const Eigen::Vector3d &r, const ros::Time &time);
