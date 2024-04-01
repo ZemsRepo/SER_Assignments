@@ -8,7 +8,7 @@ import yaml
 
 pkg_path = "../assects/"
 mat_file = pkg_path + "dataset3.mat"
-param_file = pkg_path + "params.yaml"
+param_file = pkg_path + "dataset3Params.yaml"
 bag_file = pkg_path + "dataset3.bag"
 mat = loadmat(mat_file)
 

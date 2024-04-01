@@ -29,6 +29,12 @@ class ParamServer {
 
     // landmarks
     Utils::Landmark3DPts landmarks3dPts_;
+
+    // self-defined parameters
+    float vizSpeed_;
+    int stateBegin_;
+    int stateEnd_;
+    int slidingWindowSize_;
 };
 
 #endif  // SOLUTION04_INCLUDE_PARAMSERVER_H

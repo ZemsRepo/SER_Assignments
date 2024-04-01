@@ -1,6 +1,7 @@
 #ifndef SOLUTION04_INCLUDE_UTILS_H
 #define SOLUTION04_INCLUDE_UTILS_H
 
+#include <ceres/ceres.h>
 #include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/Path.h>
@@ -21,6 +22,9 @@
 #include <eigen3/Eigen/Dense>
 #include <memory>
 #include <opencv2/opencv.hpp>
+#include <sophus/se3.hpp>
+#include <sophus/so3.hpp>
+#include <thread>
 #include <vector>
 
 namespace Utils {
@@ -52,8 +56,7 @@ struct ImgPts {
 
 using Landmark3DPts = Eigen::Matrix<double, 20, 3>;
 
-
-void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
+void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time);
 
 void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
@@ -69,16 +72,15 @@ void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> 
 void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
                         const ros::Time &time, const std::string &frame_id);
 
+void publishMarker(const ros::Publisher &pub, const ros::Time &time, const int frameIdx,
+                   const std::string &frame_id);
+
 void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
                           const Eigen::Vector3d &r, const ros::Time &time);
 
 void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
                               const Eigen::Matrix3d &C_c_v, const Eigen::Vector3d &rho_v_c_v,
                               const ros::Time &time);
-
-Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d &v);
-
-void vec2rotMat(const Eigen::Vector3d &v, Eigen::Matrix3d &rotMat);
 
 }  // namespace Utils
 #endif  // SOLUTION04_INCLUDE_UTILS_H

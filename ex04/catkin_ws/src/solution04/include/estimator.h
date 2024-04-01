@@ -13,11 +13,18 @@ class Estimator : ParamServer {
     Estimator();
     ~Estimator();
     void run();
+    void visualize();
 
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
     void imgPtsCallBack(const solution04::ImgPts::ConstPtr& msg);
     void gtPoseCallBack(const solution04::MyPose::ConstPtr& msg);
+
+    Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d& v);
+    Eigen::Matrix3d expMap(const Eigen::Vector3d& v);
+    void motionModel(const double& delta_t, const Imu::Ptr imu, const Eigen::Matrix3d& C_vk_i_1,
+                     const Eigen::Vector3d& r_i_vk_i_1, Eigen::Matrix3d& C_vk_i,
+                     Eigen::Vector3d& r_i_vk_i);
 
 
     // subscriber
@@ -33,6 +40,9 @@ class Estimator : ParamServer {
     ros::Publisher gtPclWorldMarkerPub_;
     ros::Publisher gtPclWorldPub_;
     ros::Publisher gtTrajPub_;
+    ros::Publisher deadReckoningTrajPub_;
+    ros::Publisher estTrajPub_;
+    ros::Publisher frameMarkerPub_;
 
     // tf broadcaster
     tf2_ros::TransformBroadcaster br_;
@@ -44,16 +54,17 @@ class Estimator : ParamServer {
     std::vector<Pose::Ptr> estPoseArray_;
     std::vector<Pose::Ptr> gtPoseArray_;
 
-    int minIdx_;
-    int maxIdx_;
-    int processInterval_;
-    int frame_;
-
     bool lastImuFlag_;
     bool lastImgPtsFlag_;
     bool lastGtPoseFlag_;
+    bool estimatorFlag_;
+    int frame_;
+    int vizFrame_;
+    
 
+    nav_msgs::Path gtTraj_;
     nav_msgs::Path estTraj_;
+    nav_msgs::Path deadReckoningTraj_;
 };
 
 #endif  // SOLUTION04_INCLUDE_ESTIMATOR_H

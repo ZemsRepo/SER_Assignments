@@ -25,6 +25,12 @@ ParamServer::ParamServer() {
     nh_.param("covariance/w_var", w_var_v, std::vector<double>(3, 0.0));
     nh_.param("covariance/y_var", y_var_v, std::vector<double>(4, 0.0));
 
+    // self-defined parameters
+    nh_.param<float>("vizSpeed", vizSpeed_, 1.0);
+    nh_.param<int>("stateBegin", stateBegin_, 0);
+    nh_.param<int>("stateEnd", stateEnd_, 0);
+    nh_.param<int>("slidingWindowSize", slidingWindowSize_, 10);
+
     // std::vector to eigen
     landmarks3dPts_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
         landmarks3dPts_v.data(), 20, 3);

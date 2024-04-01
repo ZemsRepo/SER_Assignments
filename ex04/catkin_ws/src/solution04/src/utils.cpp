@@ -2,13 +2,10 @@
 
 namespace Utils {
 
-void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
+void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time) {
     Eigen::Quaterniond Q(C);
-
-    static nav_msgs::Path gtTraj;
-    gtTraj.header.frame_id = "world";
-
+    traj.header.frame_id = "world";
     geometry_msgs::PoseStamped gtPoseMsg;
     gtPoseMsg.header.stamp = time;
     gtPoseMsg.header.frame_id = "world";
@@ -19,8 +16,8 @@ void publish_trajectory(const ros::Publisher &pub, const Eigen::Matrix3d &C,
     gtPoseMsg.pose.orientation.y = Q.inverse().y();
     gtPoseMsg.pose.orientation.z = Q.inverse().z();
     gtPoseMsg.pose.orientation.w = Q.inverse().w();
-    gtTraj.poses.push_back(gtPoseMsg);
-    pub.publish(gtTraj);
+    traj.poses.push_back(gtPoseMsg);
+    pub.publish(traj);
 }
 
 void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
@@ -118,6 +115,34 @@ void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmark
     pub.publish(marker_array);
 }
 
+void publishMarker(const ros::Publisher &pub, const ros::Time &time, const int frameIdx,
+                   const std::string &frame_id) {
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = frame_id;
+    marker.header.stamp = time;
+    marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = 3.5;
+    marker.pose.position.y = 1.5;
+    marker.pose.position.z = 0.1;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.z = 0.05;
+    marker.color.a = 1.0;
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+    marker.ns = frame_id;
+    marker.id = 100;
+    marker.lifetime = ros::Duration();
+    std::stringstream ss;
+    ss << "frame: " << frameIdx + 1;
+    marker.text = ss.str();
+    pub.publish(marker);
+}
+
 void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
                           const Eigen::Vector3d &r, const ros::Time &time) {
     Eigen::Quaterniond Q(C);
@@ -153,18 +178,5 @@ void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
     veh2CamTrans.transform.rotation.z = Q.inverse().z();
     veh2CamTrans.transform.rotation.w = Q.inverse().w();
     staticBr.sendTransform(veh2CamTrans);
-}
-
-Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d &v) {
-    Eigen::Matrix3d skewSymmetric;
-    skewSymmetric << 0, -v(2), v(1), v(2), 0, -v(0), -v(1), v(0), 0;
-    return skewSymmetric;
-}
-
-void vec2rotMat(const Eigen::Vector3d &v, Eigen::Matrix3d &rotMat) {
-    auto &&v_norm = v.norm();
-    auto &I = Eigen::Matrix3d::Identity();
-    rotMat = cos(v_norm) * I + (1 - cos(v_norm)) * (v / v_norm) * (v / v_norm).transpose() -
-             sin(v_norm) * skewSymmetric(v / v_norm);
 }
 }  // namespace Utils

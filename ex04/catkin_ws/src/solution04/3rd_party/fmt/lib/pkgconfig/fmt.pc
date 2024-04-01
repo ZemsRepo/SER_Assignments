@@ -1,0 +1,11 @@
+prefix=/home/zeming/3rdParty/fmt
+exec_prefix=/home/zeming/3rdParty/fmt
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: fmt
+Description: A modern formatting library
+Version: 10.2.2
+Libs: -L${libdir} -lfmt
+Cflags: -I${includedir}
+

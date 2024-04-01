@@ -1,7 +1,7 @@
 <launch >
+    <rosparam file="$(find solution04)/assects/dataset3Params.yaml" command="load"/>
     <rosparam file="$(find solution04)/assects/params.yaml" command="load"/>
-    <rosparam file="$(find solution04)/assects/params1.yaml" command="load"/>
-    <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 1 -d 2" output="log" cwd="node"/>
+    <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 50 -d 2" output="log" cwd="node"/>
     <node pkg="solution04" type= "estimator" name="estimator" output="screen" cwd="node"/>
     <!-- <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" args="-p $(find solution04)/assects/viz.perspective" /> -->
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find solution04)/assects/viz.rviz" />
