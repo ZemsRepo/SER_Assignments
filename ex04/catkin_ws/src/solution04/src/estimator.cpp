@@ -26,10 +26,13 @@ Estimator::Estimator() : ParamServer() {
     lastImgPtsFlag_ = false;
     lastGtPoseFlag_ = false;
     estimatorFlag_ = true;
+    vizFlag_ = false;
     frame_ = 0;
-    vizFrame_ = stateBegin_;
+    vizFrame_ = 0;
 }
-Estimator::~Estimator() = default;
+Estimator::~Estimator() {
+    for (auto poseSE3 : deadReckoningPoseArraySE3_) delete poseSE3;
+};
 
 void Estimator::imuCallBack(const solution04::MyImu::ConstPtr& msg) {
     Imu::Ptr imu = std::make_shared<Imu>();
@@ -92,6 +95,12 @@ Eigen::Matrix3d Estimator::expMap(const Eigen::Vector3d& v) {
            sin(v_norm) * skewSymmetric(v / v_norm);
 }
 
+Sophus::SE3d Estimator::vecToSE3(const Eigen::Vector3d& theta, const Eigen::Vector3d& r) {
+    Eigen::Matrix3d&& C = expMap(theta);
+    // Sophus::SO3d&& sophus_C = Sophus::SO3d::exp(theta); // sophus_C equals C.inverse()
+    return Sophus::SE3d(C, -C * r);
+}
+
 void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
                             const Eigen::Matrix3d& C_vk_1_i, const Eigen::Vector3d& r_i_vk_1_i,
                             Eigen::Matrix3d& C_vk_i, Eigen::Vector3d& r_i_vk_i) {
@@ -103,15 +112,28 @@ void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
     r_i_vk_i = r_i_vk_1_i + C_vk_1_i.transpose() * d;
 }
 
+Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
+                                    const Sophus::SE3d& T_vk_1_i) {
+    const auto& w = imu->w;
+    const auto& v = imu->v;
+    const auto& d = v * delta_t;
+    const auto& psi = w * delta_t;
+    auto&& ksaiUpper = vecToSE3(psi, d);
+    return ksaiUpper * T_vk_1_i;
+}
+
 void Estimator::visualize() {
     int baseRate = 10;
     ros::Rate rate(baseRate * vizSpeed_);
     while (ros::ok()) {
         rate.sleep();
-        if (gtPoseArray_.size() >= stateEnd_ + 1 && vizFrame_ < stateEnd_ + 1) {
-            const auto thisImu = imuArray_[vizFrame_];
-            const auto thisImgPts = imgPtsArray_[vizFrame_];
-            const auto thisGtPose = gtPoseArray_[vizFrame_];
+        if (vizFlag_ == true && stateBegin_ + vizFrame_ <= stateEnd_) {
+            const auto thisImu = imuArray_[stateBegin_ + vizFrame_];
+            const auto thisImgPts = imgPtsArray_[stateBegin_ + vizFrame_];
+            const auto thisGtPose = gtPoseArray_[stateBegin_ + vizFrame_];
+            
+            const auto C = deadReckoningPoseArraySE3_[vizFrame_]->rotationMatrix();
+            const auto r = deadReckoningPoseArraySE3_[vizFrame_]->inverse().translation();
 
             ros::Time timeImu(thisImu->t);
             ros::Time timeImgPts(thisImgPts->t);
@@ -128,14 +150,18 @@ void Estimator::visualize() {
                 landmarks3dPtsCam.row(i) = p_ck_pj_ck;
             }
 
-            // publish ground truth
-            Utils::broadcastWorld2VehTF(br_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose);
+            ROS_INFO("frame: %d", stateBegin_ + vizFrame_);
+
+            // publish
+            Utils::broadcastWorld2VehTF(br_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose, "vehicle");
+
+            Utils::broadcastWorld2VehTF(br_, C, r, timeGtPose, "vehicle_dead_reckoning");
 
             Utils::broadcastStaticVeh2CamTF(staticBr_, C_c_v_, rho_v_c_v_, timeGtPose);
 
             Utils::publish_trajectory(gtTrajPub_, gtTraj_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose);
 
-            // Utils::publish_trajectory(deadReckoningTrajPub_, deadReckoningTraj_, C, r, timeImu);
+            Utils::publish_trajectory(deadReckoningTrajPub_, deadReckoningTraj_, C, r, timeGtPose);
 
             Utils::publishPointCloud(gtPclWorldPub_, landmarks3dPts_, timeGtPose, "world");
 
@@ -153,7 +179,7 @@ void Estimator::visualize() {
 
             Utils::publishMarkerArray(gtPclWorldMarkerPub_, landmarks3dPts_, timeGtPose, "world");
 
-            Utils::publishMarker(frameMarkerPub_, timeGtPose, vizFrame_, "world");
+            Utils::publishMarker(frameMarkerPub_, timeGtPose, stateBegin_ + vizFrame_, "world");
 
             ++vizFrame_;
         }
@@ -164,10 +190,29 @@ void Estimator::run() {
     if (estimatorFlag_ == false) return;
     if (gtPoseArray_.size() == imuArray_.size() && gtPoseArray_.size() == imgPtsArray_.size() &&
         gtPoseArray_.size() >= stateEnd_ + 1) {
-        ROS_INFO("estimator start");
         // TODO: implement the estimator here
-        
+
+        for (int i = stateBegin_; i < stateEnd_ + 1; i++) {
+            if (i == stateBegin_) {
+                const auto gt_pose_begin = gtPoseArray_[stateBegin_];
+                auto&& T_vk_begin_i = vecToSE3(gt_pose_begin->theta, gt_pose_begin->r);
+                deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+
+                ROS_INFO("frame: %d", i);
+                ROS_INFO_STREAM("T_vk_begin_i: \n" << T_vk_begin_i.matrix());
+            } else {
+                double delta_t = gtPoseArray_[i]->t - gtPoseArray_[i - 1]->t;
+                const auto& T_vk_1_i = *deadReckoningPoseArraySE3_.back();
+                auto&& T_vk_i = motionModel(delta_t, imuArray_[i], T_vk_1_i);
+                deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
+                ROS_INFO("frame: %d", i);
+                ROS_INFO_STREAM("T_vk_i: \n" << T_vk_i.matrix());
+            }
+        }
+
         estimatorFlag_ = false;
+        vizFlag_ = true;
+        ROS_INFO("estimator finished");
     }
 }
 
@@ -243,7 +288,7 @@ int main(int argc, char** argv) {
     Estimator estimator;
 
     std::thread visThread(&Estimator::visualize, &estimator);
-    ros::Rate rate(10);
+    ros::Rate rate(100);
     while (ros::ok()) {
         ros::spinOnce();
         estimator.run();

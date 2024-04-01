@@ -4,7 +4,7 @@ namespace Utils {
 
 void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time) {
-    Eigen::Quaterniond Q(C);
+    Eigen::Quaterniond Q(C.transpose());
     traj.header.frame_id = "world";
     geometry_msgs::PoseStamped gtPoseMsg;
     gtPoseMsg.header.stamp = time;
@@ -12,10 +12,10 @@ void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const E
     gtPoseMsg.pose.position.x = r.x();
     gtPoseMsg.pose.position.y = r.y();
     gtPoseMsg.pose.position.z = r.z();
-    gtPoseMsg.pose.orientation.x = Q.inverse().x();
-    gtPoseMsg.pose.orientation.y = Q.inverse().y();
-    gtPoseMsg.pose.orientation.z = Q.inverse().z();
-    gtPoseMsg.pose.orientation.w = Q.inverse().w();
+    gtPoseMsg.pose.orientation.x = Q.x();
+    gtPoseMsg.pose.orientation.y = Q.y();
+    gtPoseMsg.pose.orientation.z = Q.z();
+    gtPoseMsg.pose.orientation.w = Q.w();
     traj.poses.push_back(gtPoseMsg);
     pub.publish(traj);
 }
@@ -144,27 +144,28 @@ void publishMarker(const ros::Publisher &pub, const ros::Time &time, const int f
 }
 
 void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
-                          const Eigen::Vector3d &r, const ros::Time &time) {
-    Eigen::Quaterniond Q(C);
+                          const Eigen::Vector3d &r, const ros::Time &time,
+                          const std::string &child_frame_id) {
+    Eigen::Quaterniond Q(C.transpose());
 
     geometry_msgs::TransformStamped world2VehTrans;
     world2VehTrans.header.stamp = time;
     world2VehTrans.header.frame_id = "world";
-    world2VehTrans.child_frame_id = "vehicle";
+    world2VehTrans.child_frame_id = child_frame_id;
     world2VehTrans.transform.translation.x = r.x();
     world2VehTrans.transform.translation.y = r.y();
     world2VehTrans.transform.translation.z = r.z();
-    world2VehTrans.transform.rotation.x = Q.inverse().x();
-    world2VehTrans.transform.rotation.y = Q.inverse().y();
-    world2VehTrans.transform.rotation.z = Q.inverse().z();
-    world2VehTrans.transform.rotation.w = Q.inverse().w();
+    world2VehTrans.transform.rotation.x = Q.x();
+    world2VehTrans.transform.rotation.y = Q.y();
+    world2VehTrans.transform.rotation.z = Q.z();
+    world2VehTrans.transform.rotation.w = Q.w();
     br.sendTransform(world2VehTrans);
 }
 
 void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
                               const Eigen::Matrix3d &C_c_v, const Eigen::Vector3d &rho_v_c_v,
                               const ros::Time &time) {
-    static Eigen::Quaterniond Q(C_c_v);
+    static Eigen::Quaterniond Q(C_c_v.transpose());
 
     static geometry_msgs::TransformStamped veh2CamTrans;
     veh2CamTrans.header.stamp = time;
@@ -173,10 +174,10 @@ void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
     veh2CamTrans.transform.translation.x = rho_v_c_v.x();
     veh2CamTrans.transform.translation.y = rho_v_c_v.y();
     veh2CamTrans.transform.translation.z = rho_v_c_v.z();
-    veh2CamTrans.transform.rotation.x = Q.inverse().x();
-    veh2CamTrans.transform.rotation.y = Q.inverse().y();
-    veh2CamTrans.transform.rotation.z = Q.inverse().z();
-    veh2CamTrans.transform.rotation.w = Q.inverse().w();
+    veh2CamTrans.transform.rotation.x = Q.x();
+    veh2CamTrans.transform.rotation.y = Q.y();
+    veh2CamTrans.transform.rotation.z = Q.z();
+    veh2CamTrans.transform.rotation.w = Q.w();
     staticBr.sendTransform(veh2CamTrans);
 }
 }  // namespace Utils

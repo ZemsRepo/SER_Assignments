@@ -76,7 +76,8 @@ void publishMarker(const ros::Publisher &pub, const ros::Time &time, const int f
                    const std::string &frame_id);
 
 void broadcastWorld2VehTF(tf2_ros::TransformBroadcaster &br, const Eigen::Matrix3d &C,
-                          const Eigen::Vector3d &r, const ros::Time &time);
+                          const Eigen::Vector3d &r, const ros::Time &time,
+                          const std::string &child_frame_id);
 
 void broadcastStaticVeh2CamTF(tf2_ros::StaticTransformBroadcaster &staticBr,
                               const Eigen::Matrix3d &C_c_v, const Eigen::Vector3d &rho_v_c_v,
