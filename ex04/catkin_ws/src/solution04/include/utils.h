@@ -54,22 +54,27 @@ struct ImgPts {
     Eigen::Matrix<double, 20, 4> pts;
 };
 
-using Landmark3DPts = Eigen::Matrix<double, 20, 3>;
+bool imgPtIsVisible(const Eigen::Vector2d &imgPt);
 
 void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const Eigen::Matrix3d &C,
                         const Eigen::Vector3d &r, const ros::Time &time);
 
-void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishPointCloud(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                        const ros::Time &time, const std::string &frame_id);
 
-void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishPointCloud(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                        const Eigen::Matrix<double, 20, 2> &imgPtsNomo, const ros::Time &time,
                        const std::string &frame_id);
 
 void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
                   const cv::Scalar &color, const ros::Time &time, const std::string &frame_id);
 
-void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
+                  const cv::Scalar &color, const Eigen::Matrix<double, 20, 2> &imgPtsObsModel,
+                  const cv::Scalar &colorObsModel, const ros::Time &time,
+                  const std::string &frame_id);
+
+void publishMarkerArray(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                         const ros::Time &time, const std::string &frame_id);
 
 void publishMarker(const ros::Publisher &pub, const ros::Time &time, const int frameIdx,

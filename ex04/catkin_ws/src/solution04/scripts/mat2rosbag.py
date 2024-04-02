@@ -140,8 +140,8 @@ def main():
             imgPts_msg.header.frame_id = "camera"
             imgPts_msg.header.stamp = timestamp
             ## landmarks
-            left_points = [Pixel(round(p[0]), round(p[1])) for p in y_k_j[k]]
-            right_points = [Pixel(round(p[2]), round(p[3])) for p in y_k_j[k]]
+            left_points = [Pixel(p[0], p[1]) for p in y_k_j[k]]
+            right_points = [Pixel(p[2], p[3]) for p in y_k_j[k]]
             imgPts_msg.left = left_points
             imgPts_msg.right = right_points
 

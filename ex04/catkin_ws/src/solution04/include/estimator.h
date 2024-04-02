@@ -8,8 +8,6 @@ class Estimator : ParamServer {
     using Imu = Utils::Imu;
     using ImgPts = Utils::ImgPts;
     using Pose = Utils::Pose;
-    using SE3d_Ptr = std::shared_ptr<Sophus::SE3d>;
-    using SO3d_Ptr = std::shared_ptr<Sophus::SO3d>;
 
    public:
     Estimator();
@@ -32,6 +30,13 @@ class Estimator : ParamServer {
                              const Sophus::SE3d& T_vk_1_i);
 
     Sophus::SE3d vecToSE3(const Eigen::Vector3d& theta, const Eigen::Vector3d& r);
+
+    Eigen::Matrix<double, 20, 3> camera3dPts(const Eigen::Matrix3d& C_vk_i,
+                                             const Eigen::Vector3d& r_i_vk_i);
+
+    Eigen::Matrix<double, 20, 3> camera3dPts(const Sophus::SE3d& T_vk_i);
+
+    Eigen::Matrix<double, 20, 4> observationModel(const Sophus::SE3d& T_vk_i);
 
     // subscriber
     ros::Subscriber imuSub_;
@@ -60,6 +65,7 @@ class Estimator : ParamServer {
     std::vector<Pose::Ptr> gtPoseArray_;
     std::vector<Sophus::SE3d*> deadReckoningPoseArraySE3_;
     std::vector<Sophus::SE3d*> estPoseArraySE3_;
+    std::vector<Eigen::Matrix<double, 20, 4>*> deadReckoningImgPtsArray_;
 
     bool lastImuFlag_;
     bool lastImgPtsFlag_;

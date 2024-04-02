@@ -25,7 +25,6 @@ set(ESTIMATOR_NODE estimator)
 
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
-find_package(Eigen3 REQUIRED PATHS ${3RD_PARTY_DIR}/eigen-3.4.0 NO_DEFAULT_PATH)
 find_package(Sophus REQUIRED PATHS ${3RD_PARTY_DIR}/Sophus NO_DEFAULT_PATH)
 find_package(Ceres REQUIRED PATHS ${3RD_PARTY_DIR}/ceres-solver NO_DEFAULT_PATH)
 
@@ -180,7 +179,6 @@ add_executable(${ESTIMATOR_NODE} ${SOURCES})
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${ESTIMATOR_NODE}
   ${catkin_LIBRARIES}
-  Eigen3::Eigen
   Sophus::Sophus
   Ceres::ceres
 )

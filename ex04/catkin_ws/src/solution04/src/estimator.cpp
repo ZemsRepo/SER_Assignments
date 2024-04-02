@@ -32,6 +32,8 @@ Estimator::Estimator() : ParamServer() {
 }
 Estimator::~Estimator() {
     for (auto poseSE3 : deadReckoningPoseArraySE3_) delete poseSE3;
+    for (auto poseSE3 : estPoseArraySE3_) delete poseSE3;
+    for (auto imgPts : deadReckoningImgPtsArray_) delete imgPts;
 };
 
 void Estimator::imuCallBack(const solution04::MyImu::ConstPtr& msg) {
@@ -122,6 +124,45 @@ Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
     return ksaiUpper * T_vk_1_i;
 }
 
+Eigen::Matrix<double, 20, 3> Estimator::camera3dPts(const Eigen::Matrix3d& C_vk_i,
+                                                    const Eigen::Vector3d& r_i_vk_i) {
+    Eigen::Matrix<double, 20, 3> landmarks3dPtsCam;
+    for (int i = 0; i < 20; i++) {
+        Eigen::Vector3d p_ck_pj_ck;
+        Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
+        p_ck_pj_ck = C_c_v_ * (C_vk_i * (rho_i_pj_i - r_i_vk_i) - rho_v_c_v_);
+        landmarks3dPtsCam.row(i) = p_ck_pj_ck;
+    }
+    return landmarks3dPtsCam;
+}
+
+Eigen::Matrix<double, 20, 3> Estimator::camera3dPts(const Sophus::SE3d& T_vk_i) {
+    Eigen::Matrix<double, 20, 3> landmarks3dPtsCam;
+    static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
+    for (int i = 0; i < 20; i++) {
+        Eigen::Vector3d p_ck_pj_ck;
+        Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
+        p_ck_pj_ck = T_c_v * T_vk_i * rho_i_pj_i;
+        landmarks3dPtsCam.row(i) = p_ck_pj_ck;
+    }
+    return landmarks3dPtsCam;
+}
+
+Eigen::Matrix<double, 20, 4> Estimator::observationModel(const Sophus::SE3d& T_vk_i) {
+    const auto& landmarks3dPtsCam = camera3dPts(T_vk_i);
+    Eigen::Matrix<double, 20, 4> imgPts;
+    for (int i = 0; i < 20; i++) {
+        double x = landmarks3dPtsCam(i, 0);
+        double y = landmarks3dPtsCam(i, 1);
+        double z = landmarks3dPtsCam(i, 2);
+        imgPts(i, 0) = fu_ * x / z + cu_;
+        imgPts(i, 1) = fv_ * y / z + cv_;
+        imgPts(i, 2) = fu_ * (x - b_) / z + cu_;
+        imgPts(i, 3) = fv_ * y / z + cv_;
+    }
+    return imgPts;
+}
+
 void Estimator::visualize() {
     int baseRate = 10;
     ros::Rate rate(baseRate * vizSpeed_);
@@ -131,9 +172,12 @@ void Estimator::visualize() {
             const auto thisImu = imuArray_[stateBegin_ + vizFrame_];
             const auto thisImgPts = imgPtsArray_[stateBegin_ + vizFrame_];
             const auto thisGtPose = gtPoseArray_[stateBegin_ + vizFrame_];
-            
-            const auto C = deadReckoningPoseArraySE3_[vizFrame_]->rotationMatrix();
-            const auto r = deadReckoningPoseArraySE3_[vizFrame_]->inverse().translation();
+
+            const auto thisDeadReckoningPose = deadReckoningPoseArraySE3_[vizFrame_];
+            const auto C = thisDeadReckoningPose->rotationMatrix();
+            const auto r = thisDeadReckoningPose->inverse().translation();
+
+            const auto thisDeadReckoningImgPts = deadReckoningImgPtsArray_[vizFrame_];
 
             ros::Time timeImu(thisImu->t);
             ros::Time timeImgPts(thisImgPts->t);
@@ -141,16 +185,8 @@ void Estimator::visualize() {
 
             const auto& r_i_vk_i_gt = thisGtPose->r;
             const auto& C_vk_i_gt = expMap(thisGtPose->theta);
-
-            Utils::Landmark3DPts landmarks3dPtsCam;
-            for (int i = 0; i < 20; i++) {
-                Eigen::Vector3d p_ck_pj_ck;
-                Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
-                p_ck_pj_ck = C_c_v_ * (C_vk_i_gt * (rho_i_pj_i - r_i_vk_i_gt) - rho_v_c_v_);
-                landmarks3dPtsCam.row(i) = p_ck_pj_ck;
-            }
-
-            ROS_INFO("frame: %d", stateBegin_ + vizFrame_);
+            Sophus::SE3d T_vk_i_gt(C_vk_i_gt, -C_vk_i_gt * r_i_vk_i_gt);
+            Eigen::Matrix<double, 20, 3> landmarks3dPtsCam = camera3dPts(T_vk_i_gt);
 
             // publish
             Utils::broadcastWorld2VehTF(br_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose, "vehicle");
@@ -172,10 +208,13 @@ void Estimator::visualize() {
                                      thisImgPts->pts.block(0, 2, 20, 2), timeGtPose, "camera");
 
             Utils::publishImage(imgPubLeft_, thisImgPts->pts.block(0, 0, 20, 2),
-                                cv::Scalar(0, 0, 164), timeImgPts, "camera");
+                                cv::Scalar(0, 0, 164), thisDeadReckoningImgPts->block(0, 0, 20, 2),
+                                cv::Scalar(0, 255, 0), timeImgPts, "camera");
 
             Utils::publishImage(imgPubRight_, thisImgPts->pts.block(0, 2, 20, 2),
-                                cv::Scalar(135, 74, 32), timeImgPts, "camera");
+                                cv::Scalar(135, 74, 32),
+                                thisDeadReckoningImgPts->block(0, 2, 20, 2), cv::Scalar(0, 255, 0),
+                                timeImgPts, "camera");
 
             Utils::publishMarkerArray(gtPclWorldMarkerPub_, landmarks3dPts_, timeGtPose, "world");
 
@@ -187,33 +226,29 @@ void Estimator::visualize() {
 }
 
 void Estimator::run() {
-    if (estimatorFlag_ == false) return;
-    if (gtPoseArray_.size() == imuArray_.size() && gtPoseArray_.size() == imgPtsArray_.size() &&
-        gtPoseArray_.size() >= stateEnd_ + 1) {
-        // TODO: implement the estimator here
+    if (estimatorFlag_ == false || gtPoseArray_.size() != imuArray_.size() ||
+        gtPoseArray_.size() != imgPtsArray_.size() || gtPoseArray_.size() < stateEnd_ + 1)
+        return;
 
-        for (int i = stateBegin_; i < stateEnd_ + 1; i++) {
-            if (i == stateBegin_) {
-                const auto gt_pose_begin = gtPoseArray_[stateBegin_];
-                auto&& T_vk_begin_i = vecToSE3(gt_pose_begin->theta, gt_pose_begin->r);
-                deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+    // Estimator implementation
+    const auto gt_pose_begin = gtPoseArray_[stateBegin_];
+    auto&& T_vk_begin_i = vecToSE3(gt_pose_begin->theta, gt_pose_begin->r);
+    deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
 
-                ROS_INFO("frame: %d", i);
-                ROS_INFO_STREAM("T_vk_begin_i: \n" << T_vk_begin_i.matrix());
-            } else {
-                double delta_t = gtPoseArray_[i]->t - gtPoseArray_[i - 1]->t;
-                const auto& T_vk_1_i = *deadReckoningPoseArraySE3_.back();
-                auto&& T_vk_i = motionModel(delta_t, imuArray_[i], T_vk_1_i);
-                deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
-                ROS_INFO("frame: %d", i);
-                ROS_INFO_STREAM("T_vk_i: \n" << T_vk_i.matrix());
-            }
-        }
-
-        estimatorFlag_ = false;
-        vizFlag_ = true;
-        ROS_INFO("estimator finished");
+    for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
+        double delta_t = gtPoseArray_[i]->t - gtPoseArray_[i - 1]->t;
+        const auto& T_vk_1_i = *deadReckoningPoseArraySE3_.back();
+        auto&& T_vk_i = motionModel(delta_t, imuArray_[i], T_vk_1_i);
+        deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
     }
+
+    for (const auto T_vk_i : deadReckoningPoseArraySE3_) {
+        auto&& imgPts = observationModel(*T_vk_i);
+        deadReckoningImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
+    }
+
+    estimatorFlag_ = false;
+    vizFlag_ = true;
 }
 
 // void Estimator::run() {
@@ -235,7 +270,7 @@ void Estimator::run() {
 //     const auto& r_i_vk_i_gt = thisGtPose->r;
 //     const auto& C_vk_i_gt = expMap(thisGtPose->theta);
 
-//     Utils::Landmark3DPts landmarks3dPtsCam;
+//     Utils::Eigen::Matrix<double, 20, 3> landmarks3dPtsCam;
 //     for (int i = 0; i < 20; i++) {
 //         Eigen::Vector3d p_ck_pj_ck;
 //         Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);

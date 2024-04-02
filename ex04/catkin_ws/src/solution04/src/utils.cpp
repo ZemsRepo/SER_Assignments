@@ -20,7 +20,7 @@ void publish_trajectory(const ros::Publisher &pub, nav_msgs::Path &traj, const E
     pub.publish(traj);
 }
 
-void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishPointCloud(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                        const ros::Time &time, const std::string &frame_id) {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     cloud->width = 20;
@@ -41,7 +41,7 @@ void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks
     pub.publish(cloudMsg);
 }
 
-void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishPointCloud(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                        const Eigen::Matrix<double, 20, 2> &imgPtsNomo, const ros::Time &time,
                        const std::string &frame_id) {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -64,11 +64,15 @@ void publishPointCloud(const ros::Publisher &pub, const Landmark3DPts &landmarks
     pub.publish(cloudMsg);
 }
 
+bool imgPtIsVisible(const Eigen::Vector2d &imgPt) {
+    return imgPt.x() >= 0 && imgPt.x() < imgWidth && imgPt.y() >= 0 && imgPt.y() < imgHeight;
+}
+
 void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
                   const cv::Scalar &color, const ros::Time &time, const std::string &frame_id) {
     cv::Mat img = cv::Mat::zeros(cv::Size(imgWidth, imgHeight), CV_8UC3);
     for (int i = 0; i < 20; i++) {
-        if (imgPtsMono(i, 0) == -1) continue;
+        if (!imgPtIsVisible(imgPtsMono.row(i))) continue;
         cv::circle(img, cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)), 5, color, -1);
         cv::putText(img, std::to_string(i + 1), cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
@@ -80,7 +84,33 @@ void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> 
     pub.publish(imgMsg);
 }
 
-void publishMarkerArray(const ros::Publisher &pub, const Landmark3DPts &landmarks,
+void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> &imgPtsMono,
+                  const cv::Scalar &color, const Eigen::Matrix<double, 20, 2> &imgPtsObsModel,
+                  const cv::Scalar &colorObsModel, const ros::Time &time,
+                  const std::string &frame_id) {
+    cv::Mat img = cv::Mat::zeros(cv::Size(imgWidth, imgHeight), CV_8UC3);
+    for (int i = 0; i < 20; i++) {
+        if (!imgPtIsVisible(imgPtsMono.row(i))) continue;
+        cv::circle(img, cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)), 5, color, -1);
+        cv::putText(img, std::to_string(i + 1), cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
+                    
+        if (!imgPtIsVisible(imgPtsObsModel.row(i))) continue;
+        cv::circle(img, cv::Point(imgPtsObsModel(i, 0), imgPtsObsModel(i, 1)), 5, colorObsModel,
+                   -1);
+        cv::putText(img, std::to_string(i + 1),
+                    cv::Point(imgPtsObsModel(i, 0), imgPtsObsModel(i, 1)), cv::FONT_HERSHEY_SIMPLEX,
+                    0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
+    }
+
+    auto header = std_msgs::Header();
+    header.stamp = time;
+    header.frame_id = "camera";
+    sensor_msgs::ImagePtr imgMsg = cv_bridge::CvImage(header, "bgr8", img).toImageMsg();
+    pub.publish(imgMsg);
+}
+
+void publishMarkerArray(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 3> &landmarks,
                         const ros::Time &time, const std::string &frame_id) {
     static visualization_msgs::MarkerArray marker_array;
     marker_array.markers.resize(20);
