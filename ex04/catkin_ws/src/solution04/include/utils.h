@@ -1,7 +1,6 @@
 #ifndef SOLUTION04_INCLUDE_UTILS_H
 #define SOLUTION04_INCLUDE_UTILS_H
 
-#include <ceres/ceres.h>
 #include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/Path.h>
@@ -20,6 +19,7 @@
 #include <visualization_msgs/MarkerArray.h>
 
 #include <eigen3/Eigen/Dense>
+#include <ceres/ceres.h>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <sophus/se3.hpp>

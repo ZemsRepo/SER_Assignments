@@ -138,29 +138,135 @@ Eigen::Matrix<double, 20, 3> Estimator::camera3dPts(const Eigen::Matrix3d& C_vk_
 
 Eigen::Matrix<double, 20, 3> Estimator::camera3dPts(const Sophus::SE3d& T_vk_i) {
     Eigen::Matrix<double, 20, 3> landmarks3dPtsCam;
-    static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
-    for (int i = 0; i < 20; i++) {
-        Eigen::Vector3d p_ck_pj_ck;
-        Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
-        p_ck_pj_ck = T_c_v * T_vk_i * rho_i_pj_i;
-        landmarks3dPtsCam.row(i) = p_ck_pj_ck;
-    }
+    for (int i = 0; i < 20; i++)
+        landmarks3dPtsCam.row(i) = transformToCameraFrame(landmarks3dPts_.row(i), T_vk_i);
+
     return landmarks3dPtsCam;
+}
+
+Eigen::Vector3d Estimator::transformToCameraFrame(const Eigen::Vector3d& landmark,
+                                                  const Sophus::SE3d& T_vk_i) {
+    static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
+    Eigen::Vector3d p_ck_pj_ck;
+    const auto& rho_i_pj_i = landmark;
+
+    p_ck_pj_ck = T_c_v * T_vk_i * rho_i_pj_i;
+    return p_ck_pj_ck;
+}
+
+Eigen::Vector4d Estimator::transformToImgPts(const Eigen::Vector3d& p_ck_pj_ck) {
+    double x = p_ck_pj_ck(0);
+    double y = p_ck_pj_ck(1);
+    double z = p_ck_pj_ck(2);
+
+    Eigen::Vector4d imgPts;
+    imgPts(0) = fu_ * x / z + cu_;
+    imgPts(1) = fv_ * y / z + cv_;
+    imgPts(2) = fu_ * (x - b_) / z + cu_;
+    imgPts(3) = fv_ * y / z + cv_;
+    return imgPts;
 }
 
 Eigen::Matrix<double, 20, 4> Estimator::observationModel(const Sophus::SE3d& T_vk_i) {
     const auto& landmarks3dPtsCam = camera3dPts(T_vk_i);
     Eigen::Matrix<double, 20, 4> imgPts;
-    for (int i = 0; i < 20; i++) {
-        double x = landmarks3dPtsCam(i, 0);
-        double y = landmarks3dPtsCam(i, 1);
-        double z = landmarks3dPtsCam(i, 2);
-        imgPts(i, 0) = fu_ * x / z + cu_;
-        imgPts(i, 1) = fv_ * y / z + cv_;
-        imgPts(i, 2) = fu_ * (x - b_) / z + cu_;
-        imgPts(i, 3) = fv_ * y / z + cv_;
-    }
+    for (int i = 0; i < 20; i++) imgPts.row(i) = transformToImgPts(landmarks3dPtsCam.row(i));
     return imgPts;
+}
+
+Eigen::Vector4d Estimator::observationModel(const Sophus::SE3d& T_vk_i,
+                                            const Eigen::Vector3d rho_i_pj_i) {
+    Eigen::Vector3d p_ck_pj_ck = transformToCameraFrame(rho_i_pj_i, T_vk_i);
+    return transformToImgPts(p_ck_pj_ck);
+}
+
+Sophus::Vector6d Estimator::error_op_vk(const Sophus::SE3d& ksaiUpper_k,
+                                        const Sophus::SE3d& T_op_k_1, const Sophus::SE3d& T_op_k) {
+    return (ksaiUpper_k * T_op_k_1 * T_op_k.inverse()).log();
+}
+
+Sophus::Matrix6d Estimator::F_k_1(const Sophus::SE3d& T_op_k_1, const Sophus::SE3d& T_op_k) {
+    return (T_op_k * T_op_k_1.inverse()).Adj();
+}
+
+Sophus::Vector4d Estimator::error_op_y_jk(const Eigen::Vector4d& y_jk, const Sophus::SE3d& T_op_k,
+                                          const Eigen::Vector3d p_ck_pj_ck) {
+    return y_jk - observationModel(T_op_k, p_ck_pj_ck);
+}
+
+Eigen::Matrix<double, 80, 1> Estimator::error_op_y_k(const Eigen::Matrix<double, 20, 4>& y_k,
+                                                     const Sophus::SE3d& T_op_k) {
+    Eigen::Matrix<double, 80, 1> error_op_y_k;
+    for (int i = 0; i < 20; i++) {
+        const auto& y_jk = y_k.row(i);
+        bool y_jk_is_visible = y_jk(0) != -1.0;
+        error_op_y_k.segment<4>(i * 4) = y_jk_is_visible
+                                             ? error_op_y_jk(y_jk, T_op_k, landmarks3dPts_.row(i))
+                                             : Eigen::Vector4d::Zero();
+    }
+    return error_op_y_k;
+}
+
+Sophus::Matrix6d Estimator::Q_k() {
+    Sophus::Matrix6d Q_k;
+    Q_k.block<3, 3>(0, 0) = v_var_.asDiagonal();
+    Q_k.block<3, 3>(3, 3) = w_var_.asDiagonal();
+    return Q_k;
+}
+
+Sophus::Matrix4d Estimator::R_jk() { return y_var_.asDiagonal(); }
+
+Eigen::Matrix<double, 80, 80> Estimator::R_k() {
+    Eigen::Matrix<double, 80, 80> R_k;
+    for (int i = 0; i < 20; i++) {
+        R_k.block<4, 4>(i * 4, i * 4) = R_jk();
+    }
+    return R_k;
+}
+
+Eigen::Matrix<double, 4, 6> Estimator::G_jk(const Eigen::Vector3d& p_ck_pj_ck) {
+    Eigen::Matrix4d S_jk;
+    double x = p_ck_pj_ck.x();
+    double y = p_ck_pj_ck.y();
+    double z = p_ck_pj_ck.z();
+
+    S_jk << /*r1*/ -fu_ / z, 0, -fu_ * x / (z * z), 0, /*r2*/ 0, fv_ / z, -fv_ * y / (z * z), 0,
+        /*r3*/ fu_ / z, 0 - fu_ * (x - b_) / (z * z), 0, /*r4*/ 0, fv_ / z, -fv_ * y / (z * z), 0;
+
+    auto&& Z_jk = circleDot(p_ck_pj_ck);
+    return S_jk * Z_jk;
+}
+
+Eigen::Matrix<double, 4, 6> Estimator::circleDot(const Eigen::Vector3d& p) {
+    Eigen::Matrix<double, 4, 6> p_circleDot;
+    p_circleDot.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
+    p_circleDot.block<3, 3>(0, 3) = -skewSymmetric(p);
+    p_circleDot.block<1, 6>(3, 0) = Eigen::Matrix<double, 1, 6>::Zero();
+    return p_circleDot;
+}
+
+template <typename T>
+bool Estimator::ObjectiveFunction::operator()(const T* const T_v_i, const T* const y,
+                                              T* residuals) const {
+    for (int i = 0; i < batchSize_; i++) {
+        if (i == 0) {
+            residuals[i] = 0.0;
+        } else {
+            // FIMXE: have to check the following block
+            Eigen::Map<const Eigen::Matrix<T, 4, 4>> T_vk_i_1(T_v_i[16 * (i - 1)]);
+            Eigen::Map<const Eigen::Matrix<T, 4, 4>> T_vk_i(T_v_i[16 * i]);
+            Eigen::Map<const Eigen::Matrix<T, 20, 4>> y_k(y[80 * i]);
+            const auto& ksaiUpper_k = *motionArraySE3_[i];
+
+            const auto& e_vk_i = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
+            const auto& e_y_k = error_op_y_k(y_k, T_vk_i);
+            const auto& Q_k = Q_k();
+            const auto& R_k = R_k();
+            residuals[i] = 1 / 2 * e_vk_i.transpose() * Q_k.inverse() * e_vk_i +
+                           1 / 2 * e_y_k.transpose() * R_k.inverse() * e_y_k;
+        }
+    }
+    return true;
 }
 
 void Estimator::visualize() {
@@ -250,73 +356,6 @@ void Estimator::run() {
     estimatorFlag_ = false;
     vizFlag_ = true;
 }
-
-// void Estimator::run() {
-// if (lastImuFlag_ && lastImgPtsFlag_ && lastGtPoseFlag_) {
-//     lastImuFlag_ = false;
-//     lastImgPtsFlag_ = false;
-//     lastGtPoseFlag_ = false;
-//     int size = std::min({imuArray_.size(), imgPtsArray_.size(), gtPoseArray_.size()});
-
-//     const auto thisImu = imuArray_[frame_];
-//     const auto thisImgPts = imgPtsArray_[frame_];
-//     const auto thisGtPose = gtPoseArray_[frame_];
-
-//     ros::Time timeImu(thisImu->t);
-//     ros::Time timeImgPts(thisImgPts->t);
-//     ros::Time timeGtPose(thisGtPose->t);
-
-//     // gt pose
-//     const auto& r_i_vk_i_gt = thisGtPose->r;
-//     const auto& C_vk_i_gt = expMap(thisGtPose->theta);
-
-//     Utils::Eigen::Matrix<double, 20, 3> landmarks3dPtsCam;
-//     for (int i = 0; i < 20; i++) {
-//         Eigen::Vector3d p_ck_pj_ck;
-//         Eigen::Vector3d rho_i_pj_i = landmarks3dPts_.row(i);
-//         p_ck_pj_ck = C_c_v_ * (C_vk_i_gt * (rho_i_pj_i - r_i_vk_i_gt) - rho_v_c_v_);
-//         landmarks3dPtsCam.row(i) = p_ck_pj_ck;
-//     }
-
-//     static auto r = r_i_vk_i_gt;
-//     static auto C = C_vk_i_gt;
-//     if (frame_ != 0)
-//         motionModel(imuArray_[frame_]->t - imuArray_[frame_ - 1]->t, imuArray_[frame_], C, r,
-//         C,
-//                     r);
-//     Utils::publish_trajectory(estTrajPub_, estTraj_, C, r, timeImu);
-
-//     // publish ground truth
-//     Utils::broadcastWorld2VehTF(br_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose);
-
-//     Utils::broadcastStaticVeh2CamTF(staticBr_, C_c_v_, rho_v_c_v_, timeGtPose);
-
-//     Utils::publish_trajectory(gtTrajPub_, gtTraj_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose);
-
-//     Utils::publish_trajectory(deadReckoningTrajPub_, deadReckoningTraj_, C, r, timeImu);
-
-//     Utils::publishPointCloud(gtPclWorldPub_, landmarks3dPts_, timeGtPose, "world");
-
-//     Utils::publishPointCloud(leftCamVisibleGtPclPub_, landmarks3dPtsCam,
-//                              thisImgPts->pts.block(0, 0, 20, 2), timeGtPose, "camera");
-
-//     Utils::publishPointCloud(rightCamVisibleGtPclPub_, landmarks3dPtsCam,
-//                              thisImgPts->pts.block(0, 2, 20, 2), timeGtPose, "camera");
-
-//     Utils::publishImage(imgPubLeft_, thisImgPts->pts.block(0, 0, 20, 2), cv::Scalar(0, 0,
-//     164),
-//                         timeImgPts, "camera");
-
-//     Utils::publishImage(imgPubRight_, thisImgPts->pts.block(0, 2, 20, 2),
-//                         cv::Scalar(135, 74, 32), timeImgPts, "camera");
-
-//     Utils::publishMarkerArray(gtPclWorldMarkerPub_, landmarks3dPts_, timeGtPose, "world");
-
-//     ROS_INFO("frame: %d", frame_ + 1);
-
-//     ++frame_;
-// }
-// }
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "estimator");

@@ -14,6 +14,14 @@ class Estimator : ParamServer {
     ~Estimator();
     void run();
     void visualize();
+    struct ObjectiveFunction {
+        ObjectiveFunction(int batchSize, const std::vector<const Sophus::SE3d*>& motionArraySE3)
+            : batchSize_(batchSize), motionArraySE3_(motionArraySE3) {}
+        int batchSize_;
+        std::vector<const Sophus::SE3d*> motionArraySE3_;
+        template <typename T>
+        bool operator()(const T* const T_v_i, const T* const y, T* residuals) const;
+    };
 
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
@@ -36,7 +44,35 @@ class Estimator : ParamServer {
 
     Eigen::Matrix<double, 20, 3> camera3dPts(const Sophus::SE3d& T_vk_i);
 
+    Eigen::Vector3d transformToCameraFrame(const Eigen::Vector3d& landmark,
+                                           const Sophus::SE3d& T_vk_i);
+
+    Eigen::Vector4d transformToImgPts(const Eigen::Vector3d& p_ck_pj_ck);
+
     Eigen::Matrix<double, 20, 4> observationModel(const Sophus::SE3d& T_vk_i);
+
+    Eigen::Vector4d observationModel(const Sophus::SE3d& T_vk_i, const Eigen::Vector3d rho_i_pj_i);
+
+    Sophus::Vector6d error_op_vk(const Sophus::SE3d& ksaiUpper_k, const Sophus::SE3d& T_op_k_1,
+                                 const Sophus::SE3d& T_op_k);
+
+    Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_op_k_1, const Sophus::SE3d& T_op_k);
+
+    Sophus::Vector4d error_op_y_jk(const Eigen::Vector4d& y_jk, const Sophus::SE3d& T_op_k,
+                                   const Eigen::Vector3d p_ck_pj_ck);
+
+    Eigen::Matrix<double, 80, 1> error_op_y_k(const Eigen::Matrix<double, 20, 4>& y_k,
+                                              const Sophus::SE3d& T_op_k);
+
+    Sophus::Matrix6d Q_k();
+
+    Sophus::Matrix4d R_jk();
+
+    Eigen::Matrix<double, 80, 80> R_k();
+
+    Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& p_ck_pj_ck);
+
+    Eigen::Matrix<double, 4, 6> circleDot(const Eigen::Vector3d& p);
 
     // subscriber
     ros::Subscriber imuSub_;
@@ -63,8 +99,9 @@ class Estimator : ParamServer {
     std::vector<Imu::Ptr> imuArray_;
     std::vector<ImgPts::Ptr> imgPtsArray_;
     std::vector<Pose::Ptr> gtPoseArray_;
-    std::vector<Sophus::SE3d*> deadReckoningPoseArraySE3_;
-    std::vector<Sophus::SE3d*> estPoseArraySE3_;
+    std::vector<const Sophus::SE3d*> incrementalPoseArraySE3_;
+    std::vector<const Sophus::SE3d*> deadReckoningPoseArraySE3_;
+    std::vector<const Sophus::SE3d*> estPoseArraySE3_;
     std::vector<Eigen::Matrix<double, 20, 4>*> deadReckoningImgPtsArray_;
 
     bool lastImuFlag_;
