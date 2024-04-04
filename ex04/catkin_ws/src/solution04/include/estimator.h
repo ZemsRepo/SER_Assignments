@@ -14,19 +14,24 @@ class Estimator : ParamServer {
     ~Estimator();
     void run();
     void visualize();
-    // struct ObjectiveFunction {
-    //     ObjectiveFunction(const Sophus::SE3d& ksaiUpper_k, const Sophus::SE3d& T_vk_1_i,
-    //                       const Eigen::Matrix<double, 20, 4>& y_k, const Sophus::Matrix6d& Q_k,
-    //                       const Eigen::Matrix<double, 80, 80>& R_k)
-    //         : ksaiUpper_k(ksaiUpper_k), T_vk_1_i(T_vk_1_i), y_k(y_k), Q_k(Q_k), R_k(R_k) {}
-    //     const Sophus::SE3d& ksaiUpper_k;
-    //     const Sophus::SE3d& T_vk_1_i;
-    //     const Eigen::Matrix<double, 20, 4>& y_k;
-    //     const Sophus::Matrix6d& Q_k;
-    //     const Eigen::Matrix<double, 80, 80>& R_k;
-    //     template <typename T>
-    //     bool operator()(const T* const T_vk_i, T* residuals) const;
-    // };
+    struct ObjectiveFunction {
+        ObjectiveFunction(const int batchSize,
+                          const std::vector<const Sophus::SE3d*>& incrementalPoseArraySE3,
+                          const std::vector<ImgPts::Ptr>& imgPtsArray, const Sophus::Matrix6d& Q_k,
+                          const Eigen::Matrix<double, 80, 80>& R_k)
+            : batchSize(batchSize),
+              incrementalPoseArraySE3(incrementalPoseArraySE3),
+              imgPtsArray(imgPtsArray),
+              Q_k(Q_k),
+              R_k(R_k) {}
+        int batchSize;
+        const std::vector<const Sophus::SE3d*>& incrementalPoseArraySE3;
+        const std::vector<ImgPts::Ptr>& imgPtsArray;
+        const Sophus::Matrix6d& Q_k;
+        const Eigen::Matrix<double, 80, 80>& R_k;
+        template <typename T>
+        bool operator()(const T* const T_vk_i, T* residuals) const;
+    };
 
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
@@ -79,6 +84,8 @@ class Estimator : ParamServer {
     Eigen::Matrix<double, 80, 80> R_k();
 
     Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& p_ck_pj_ck);
+
+    Eigen::Matrix<double,80,6> G_k(const Eigen::Matrix <double, 20, 4> y_k);
 
     Eigen::Matrix<double, 4, 6> circleDot(const Eigen::Vector3d& p);
 
