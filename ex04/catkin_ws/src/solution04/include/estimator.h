@@ -14,14 +14,19 @@ class Estimator : ParamServer {
     ~Estimator();
     void run();
     void visualize();
-    struct ObjectiveFunction {
-        ObjectiveFunction(int batchSize, const std::vector<const Sophus::SE3d*>& motionArraySE3)
-            : batchSize_(batchSize), motionArraySE3_(motionArraySE3) {}
-        int batchSize_;
-        std::vector<const Sophus::SE3d*> motionArraySE3_;
-        template <typename T>
-        bool operator()(const T* const T_v_i, const T* const y, T* residuals) const;
-    };
+    // struct ObjectiveFunction {
+    //     ObjectiveFunction(const Sophus::SE3d& ksaiUpper_k, const Sophus::SE3d& T_vk_1_i,
+    //                       const Eigen::Matrix<double, 20, 4>& y_k, const Sophus::Matrix6d& Q_k,
+    //                       const Eigen::Matrix<double, 80, 80>& R_k)
+    //         : ksaiUpper_k(ksaiUpper_k), T_vk_1_i(T_vk_1_i), y_k(y_k), Q_k(Q_k), R_k(R_k) {}
+    //     const Sophus::SE3d& ksaiUpper_k;
+    //     const Sophus::SE3d& T_vk_1_i;
+    //     const Eigen::Matrix<double, 20, 4>& y_k;
+    //     const Sophus::Matrix6d& Q_k;
+    //     const Eigen::Matrix<double, 80, 80>& R_k;
+    //     template <typename T>
+    //     bool operator()(const T* const T_vk_i, T* residuals) const;
+    // };
 
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
@@ -30,6 +35,9 @@ class Estimator : ParamServer {
 
     Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d& v);
     Eigen::Matrix3d expMap(const Eigen::Vector3d& v);
+
+    Sophus::SE3d incrementalPose(const double& delta_t, const Imu::Ptr imu);
+
     void motionModel(const double& delta_t, const Imu::Ptr imu, const Eigen::Matrix3d& C_vk_i_1,
                      const Eigen::Vector3d& r_i_vk_i_1, Eigen::Matrix3d& C_vk_i,
                      Eigen::Vector3d& r_i_vk_i);
@@ -101,7 +109,7 @@ class Estimator : ParamServer {
     std::vector<Pose::Ptr> gtPoseArray_;
     std::vector<const Sophus::SE3d*> incrementalPoseArraySE3_;
     std::vector<const Sophus::SE3d*> deadReckoningPoseArraySE3_;
-    std::vector<const Sophus::SE3d*> estPoseArraySE3_;
+    std::vector<Sophus::SE3d*> estPoseArraySE3_;
     std::vector<Eigen::Matrix<double, 20, 4>*> deadReckoningImgPtsArray_;
 
     bool lastImuFlag_;

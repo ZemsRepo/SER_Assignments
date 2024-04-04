@@ -103,6 +103,15 @@ Sophus::SE3d Estimator::vecToSE3(const Eigen::Vector3d& theta, const Eigen::Vect
     return Sophus::SE3d(C, -C * r);
 }
 
+Sophus::SE3d Estimator::incrementalPose(const double& delta_t, const Imu::Ptr imu) {
+    const auto& w = imu->w;
+    const auto& v = imu->v;
+    const auto& d = v * delta_t;
+    const auto& psi = w * delta_t;
+    auto&& ksaiUpper = vecToSE3(psi, d);
+    return ksaiUpper;
+}
+
 void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
                             const Eigen::Matrix3d& C_vk_1_i, const Eigen::Vector3d& r_i_vk_1_i,
                             Eigen::Matrix3d& C_vk_i, Eigen::Vector3d& r_i_vk_i) {
@@ -116,12 +125,7 @@ void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
 
 Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
                                     const Sophus::SE3d& T_vk_1_i) {
-    const auto& w = imu->w;
-    const auto& v = imu->v;
-    const auto& d = v * delta_t;
-    const auto& psi = w * delta_t;
-    auto&& ksaiUpper = vecToSE3(psi, d);
-    return ksaiUpper * T_vk_1_i;
+    return incrementalPose(delta_t, imu) * T_vk_1_i;
 }
 
 Eigen::Matrix<double, 20, 3> Estimator::camera3dPts(const Eigen::Matrix3d& C_vk_i,
@@ -208,19 +212,16 @@ Eigen::Matrix<double, 80, 1> Estimator::error_op_y_k(const Eigen::Matrix<double,
 }
 
 Sophus::Matrix6d Estimator::Q_k() {
-    Sophus::Matrix6d Q_k;
-    Q_k.block<3, 3>(0, 0) = v_var_.asDiagonal();
-    Q_k.block<3, 3>(3, 3) = w_var_.asDiagonal();
+    Eigen::DiagonalMatrix<double, 6> Q_k;
+    Q_k.diagonal() << v_var_, w_var_;
     return Q_k;
 }
 
 Sophus::Matrix4d Estimator::R_jk() { return y_var_.asDiagonal(); }
 
 Eigen::Matrix<double, 80, 80> Estimator::R_k() {
-    Eigen::Matrix<double, 80, 80> R_k;
-    for (int i = 0; i < 20; i++) {
-        R_k.block<4, 4>(i * 4, i * 4) = R_jk();
-    }
+    Eigen::DiagonalMatrix<double, 80> R_k;
+    R_k.diagonal() << R_jk().diagonal().replicate<20, 1>();
     return R_k;
 }
 
@@ -245,29 +246,26 @@ Eigen::Matrix<double, 4, 6> Estimator::circleDot(const Eigen::Vector3d& p) {
     return p_circleDot;
 }
 
-template <typename T>
-bool Estimator::ObjectiveFunction::operator()(const T* const T_v_i, const T* const y,
-                                              T* residuals) const {
-    for (int i = 0; i < batchSize_; i++) {
-        if (i == 0) {
-            residuals[i] = 0.0;
-        } else {
-            // FIMXE: have to check the following block
-            Eigen::Map<const Eigen::Matrix<T, 4, 4>> T_vk_i_1(T_v_i[16 * (i - 1)]);
-            Eigen::Map<const Eigen::Matrix<T, 4, 4>> T_vk_i(T_v_i[16 * i]);
-            Eigen::Map<const Eigen::Matrix<T, 20, 4>> y_k(y[80 * i]);
-            const auto& ksaiUpper_k = *motionArraySE3_[i];
+// template <typename T>
+// bool Estimator::ObjectiveFunction::operator()(const T* const T_vk_i_log, T* residuals) const {
+//     Sophus::Vector6d T_vk_i_log_vec;
 
-            const auto& e_vk_i = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
-            const auto& e_y_k = error_op_y_k(y_k, T_vk_i);
-            const auto& Q_k = Q_k();
-            const auto& R_k = R_k();
-            residuals[i] = 1 / 2 * e_vk_i.transpose() * Q_k.inverse() * e_vk_i +
-                           1 / 2 * e_y_k.transpose() * R_k.inverse() * e_y_k;
-        }
-    }
-    return true;
-}
+//     for (int i = 0; i < 6; i++) {
+//         T_vk_i_log_vec[i] = *T_vk_i_log;
+//         T_vk_i_log++;
+//     }
+
+//     const Sophus::SE3d& T_vk_i = T_vk_i_log_vec.exp();
+//     const auto& e_vk_i = error_op_vk(ksaiUpper_k, T_vk_1_i, T_vk_i);
+//     const auto& e_y_k = error_op_y_k(y_k, T_vk_i);
+//     const auto& e_vk_i_weighted = Q_k.diagonal().cwiseSqrt().cwiseInverse() * e_vk_i;
+//     const auto& e_y_k_weighted = R_k.diagonal().cwiseSqrt().cwiseInverse() * e_y_k;
+
+//     for (int i = 0; i < 6; i++) residuals[i] = e_vk_i_weighted(i);
+//     for (int i = 0; i < 80; i++) residuals[i + 6] = e_y_k_weighted(i);
+
+//     return true;
+// }
 
 void Estimator::visualize() {
     int baseRate = 10;
@@ -339,12 +337,16 @@ void Estimator::run() {
     // Estimator implementation
     const auto gt_pose_begin = gtPoseArray_[stateBegin_];
     auto&& T_vk_begin_i = vecToSE3(gt_pose_begin->theta, gt_pose_begin->r);
+    incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
     deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
 
     for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
-        double delta_t = gtPoseArray_[i]->t - gtPoseArray_[i - 1]->t;
+        double delta_t = imuArray_[i]->t - imuArray_[i - 1]->t;
         const auto& T_vk_1_i = *deadReckoningPoseArraySE3_.back();
-        auto&& T_vk_i = motionModel(delta_t, imuArray_[i], T_vk_1_i);
+        const auto& ksaiUpper_k = incrementalPose(delta_t, imuArray_[i]);
+        const auto& T_vk_i = ksaiUpper_k * T_vk_1_i;
+
+        incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
         deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
     }
 
@@ -352,6 +354,60 @@ void Estimator::run() {
         auto&& imgPts = observationModel(*T_vk_i);
         deadReckoningImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
     }
+
+    // double T_log_array[6 * deadReckoningPoseArraySE3_.size()];
+    // for (int i = 0; i < deadReckoningPoseArraySE3_.size(); i++)
+    //     for (int j = 0; j < 6; j++)
+    //         T_log_array[6 * i + j] = deadReckoningPoseArraySE3_[i]->log()[j];
+
+    // ceres::Problem problem;
+    // static const Sophus::Matrix6d Q = Q_k();
+    // static const Eigen::Matrix<double, 80, 80> R = R_k();
+
+    // for (int i = 1; i < deadReckoningPoseArraySE3_.size(); i++) {
+    //     const auto& ksaiUpper_k = *deadReckoningPoseArraySE3_[i];
+    //     const auto& T_vk_1_i = *estPoseArraySE3_[i - 1];
+    //     const auto& y_k = imgPtsArray_[stateBegin_ + i]->pts;
+
+    //     ceres::CostFunction* cost_function =
+    //         new ceres::AutoDiffCostFunction<ObjectiveFunction, 86, 6>(
+    //             new ObjectiveFunction(ksaiUpper_k, T_vk_1_i, y_k, Q, R));
+    //     problem.AddResidualBlock(cost_function, nullptr, T_log_array + 6 * i);
+    // }
+
+    // ceres::Solver::Options options;
+    // options.linear_solver_type = ceres::DENSE_QR;
+    // options.minimizer_type = ceres::TRUST_REGION;
+    // options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+    // options.use_nonmonotonic_steps = true;
+    // options.max_num_iterations = 100;
+    // options.minimizer_progress_to_stdout = true;
+
+    // ceres::Solver::Summary summary;
+    // ceres::Solve(options, &problem, &summary);
+
+
+    // ROS_INFO_STREAM(summary.BriefReport() << "\n");
+
+    // for (int i = 0; i < stateEnd_ - stateBegin_ + 1; i++) {
+    //     const auto& T_vk_i = *deadReckoningPoseArraySE3_[i];
+    //     auto&& imgPts = imgPtsArray_[i + stateBegin_]->pts;
+
+    //     Sophus::Vector6d e_vk_i;
+    //     Eigen::Matrix<double, 80, 1> e_y_k;
+    //     if (i == 0) {
+    //         e_vk_i.setZero();
+    //         e_y_k.setZero();
+    //     } else {
+    //         const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[i - 1];
+    //         const auto& ksaiUpper_k = *incrementalPoseArraySE3_[i];
+    //         e_vk_i = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
+    //         e_y_k = error_op_y_k(imgPts, T_vk_i);
+    //     }
+
+    //     // ROS_INFO_STREAM("e_vk_" << i + stateBegin_ + 1 << ":\n" << e_vk_i);
+    //     // ROS_INFO_STREAM("e_y_" << i + stateBegin_ + 1 << ":\n" << e_y_k);
+    // }
 
     estimatorFlag_ = false;
     vizFlag_ = true;

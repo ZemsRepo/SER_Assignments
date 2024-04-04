@@ -25,6 +25,8 @@ set(ESTIMATOR_NODE estimator)
 
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
+find_package(Eigen3 3.3.7 REQUIRED PATHS ${3RD_PARTY_DIR}/eigen-3.3.7 NO_DEFAULT_PATH)
+find_package(fmt REQUIRED PATHS ${3RD_PARTY_DIR}/fmt NO_DEFAULT_PATH)
 find_package(Sophus REQUIRED PATHS ${3RD_PARTY_DIR}/Sophus NO_DEFAULT_PATH)
 find_package(Ceres REQUIRED PATHS ${3RD_PARTY_DIR}/ceres-solver NO_DEFAULT_PATH)
 
