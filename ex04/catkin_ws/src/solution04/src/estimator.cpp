@@ -232,7 +232,7 @@ Eigen::Matrix<double, 4, 6> Estimator::G_jk(const Eigen::Vector3d& p_ck_pj_ck) {
     double z = p_ck_pj_ck.z();
 
     S_jk << /*r1*/ -fu_ / z, 0, -fu_ * x / (z * z), 0, /*r2*/ 0, fv_ / z, -fv_ * y / (z * z), 0,
-        /*r3*/ fu_ / z, 0 - fu_ * (x - b_) / (z * z), 0, /*r4*/ 0, fv_ / z, -fv_ * y / (z * z), 0;
+        /*r3*/ fu_ / z, 0, -fu_ * (x - b_) / (z * z), 0, /*r4*/ 0, fv_ / z, -fv_ * y / (z * z), 0;
 
     auto&& Z_jk = circleDot(p_ck_pj_ck);
     return S_jk * Z_jk;
@@ -246,15 +246,31 @@ Eigen::Matrix<double, 4, 6> Estimator::circleDot(const Eigen::Vector3d& p) {
     return p_circleDot;
 }
 
-Eigen::Matrix<double, 80, 6> Estimator::G_k(const Eigen::Matrix<double, 20, 4> y_k) {
+Eigen::Matrix<double, 80, 6> Estimator::G_k(const Eigen::Matrix<double, 20, 4> y_k,
+                                            const Sophus::SE3d& T_vi_k) {
     Eigen::Matrix<double, 80, 6> G_k;
     for (int i = 0; i < 20; i++) {
+        const auto& p_ck_pj_ck = transformToCameraFrame(landmarks3dPts_.row(i), T_vi_k);
         const auto& y_jk = y_k.row(i);
         bool y_jk_is_visible = y_jk(0) != -1.0;
         G_k.block<4, 6>(i * 4, 0) =
-            y_jk_is_visible ? G_jk(landmarks3dPts_.row(i)) : Eigen::Matrix<double, 4, 6>::Zero();
+            y_jk_is_visible ? G_jk(p_ck_pj_ck) : Eigen::Matrix<double, 4, 6>::Zero();
     }
     return G_k;
+}
+
+void Estimator::insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
+                                  const Eigen::SparseMatrix<double>& block, int startRow,
+                                  int startCol) {
+    std::vector<Eigen::Triplet<double>> triplets;
+
+    for (int k = 0; k < block.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(block, k); it; ++it) {
+            triplets.emplace_back(it.row() + startRow, it.col() + startCol, it.value());
+        }
+    }
+
+    largeMatrix.setFromTriplets(triplets.begin(), triplets.end());
 }
 
 // template <typename T>
@@ -387,72 +403,113 @@ void Estimator::run() {
 
     // FIXME:
     int batchSize = stateEnd_ - stateBegin_ + 1;
+    int maxIterations = 100;
+    int minIterations = 10;
+    double last_e_norm = std::numeric_limits<double>::max();
 
-    Eigen::VectorXd e_v_i;
-    Eigen::VectorXd e_y_i;
-    Eigen::MatrixXd H_F = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
-    Eigen::MatrixXd H_G = Eigen::MatrixXd::Zero(80 * batchSize, 6 * batchSize);
-    Eigen::MatrixXd W_Q = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
-    Eigen::MatrixXd W_R = Eigen::MatrixXd::Zero(80 * batchSize, 80 * batchSize);
-    static const Sophus::Matrix6d Q = Q_k();
-    static const Eigen::Matrix<double, 80, 80> R = R_k();
+    for (int i = 0; i < maxIterations; i++) {
+        Eigen::VectorXd e;
+        Eigen::VectorXd e_v_i;
+        Eigen::VectorXd e_y_i;
 
-    for (int i = 0; i < batchSize; i++) {
-        const auto& T_vk_i = *estPoseArraySE3_[i];
-        const auto& y_k = imgPtsArray_[i + stateBegin_]->pts;
+        Eigen::MatrixXd H;
+        Eigen::MatrixXd H_F;
+        Eigen::MatrixXd H_G;
 
-        Sophus::Vector6d e_vk_i;
-        Eigen::Matrix<double, 80, 1> e_y_k;
+        Eigen::MatrixXd W_Q_inv;
+        Eigen::MatrixXd W_R_inv;
+        Eigen::MatrixXd W_inv;
 
-        if (i == 0) {
-            e_vk_i.setZero();
-            e_y_k.setZero();
-            e_v_i << e_vk_i;
-            e_y_i << e_y_k;
-            H_F.block<6, 6>(0, 0) = Sophus::Matrix6d::Identity();
-            H_G.block<80, 6>(0, 0) = G_k(y_k);
-            W_Q.block<6, 6>(0, 0) = Sophus::Matrix6d::Identity();
-            W_R.block<80, 80>(0, 0) = R;
-        } else {
-            const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[i - 1];
-            const auto& ksaiUpper_k = *incrementalPoseArraySE3_[i];
-            e_vk_i = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
-            e_y_k = error_op_y_k(y_k, T_vk_i);
-            e_v_i << e_vk_i;
-            e_y_i << e_y_k;
-            H_F.block<6, 6>(6 * i, 6 * (i - 1)) = F_k_1(T_vk_i_1, T_vk_i);
-            H_F.block<6, 6>(6 * i, 6 * i) = Sophus::Matrix6d::Identity();
-            H_G.block<80, 6>(80 * i, 6 * i) = G_k(y_k);
-            W_Q.block<6, 6>(6 * i, 6 * i) = Q;
-            W_R.block<80, 80>(80 * i, 80 * i) = R;
+        e.resize(86 * batchSize, 1);
+        e_v_i.resize(6 * batchSize, 1);
+        e_y_i.resize(80 * batchSize, 1);
+        H.resize(86 * batchSize, 6 * batchSize);
+        H_F.resize(6 * batchSize, 6 * batchSize);
+        H_G.resize(80 * batchSize, 6 * batchSize);
+        W_Q_inv.resize(6 * batchSize, 6 * batchSize);
+        W_R_inv.resize(80 * batchSize, 80 * batchSize);
+        W_inv.resize(86 * batchSize, 86 * batchSize);
+
+        Eigen::Matrix<double, 6, 6> Q_k_inv = Q_k().inverse();
+        Eigen::Matrix<double, 80, 80> R_k_inv = R_k().inverse();
+
+        for (int k = 0; k < batchSize; k++) {
+            W_Q_inv.block<6, 6>(6 * k, 6 * k) = (k == 0) ? Sophus::Matrix6d::Identity() : Q_k_inv;
+            W_R_inv.block<80, 80>(80 * k, 80 * k) = R_k_inv;
         }
+        W_inv.block(0, 0, 6 * batchSize, 6 * batchSize) = W_Q_inv;
+        W_inv.block(6 * batchSize, 6 * batchSize, 80 * batchSize, 80 * batchSize) = W_R_inv;
+
+        for (int k = 0; k < batchSize; k++) {
+            const auto& T_vk_i = *estPoseArraySE3_[k];
+            const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+
+            if (k == 0) {
+                e_v_i.segment<6>(0) = Eigen::Matrix<double, 6, 1>::Zero();
+                e_y_i.segment<80>(0) = Eigen::Matrix<double, 80, 1>::Zero();
+                H_F.block<6, 6>(0, 0) = Sophus::Matrix6d::Identity();
+                H_G.block<80, 6>(0, 0) = G_k(y_k, T_vk_i);
+            } else {
+                const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[k - 1];
+                const auto& ksaiUpper_k = *incrementalPoseArraySE3_[k];
+
+                e_v_i.segment<6>(6 * k) = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
+                e_y_i.segment<80>(80 * k) = error_op_y_k(y_k, T_vk_i);
+                H_F.block<6, 6>(6 * k, 6 * (k - 1)) = F_k_1(T_vk_i_1, T_vk_i);
+                H_F.block<6, 6>(6 * k, 6 * k) = Sophus::Matrix6d::Identity();
+                H_G.block<80, 6>(80 * k, 6 * k) = G_k(y_k, T_vk_i);
+            }
+        }
+        e.segment(0, 6 * batchSize) = e_v_i;
+        e.segment(6 * batchSize, 80 * batchSize) = e_y_i;
+
+        H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
+        H.block(6 * batchSize, 0, 80 * batchSize, 6 * batchSize) = H_G;
+
+        const auto& A = H.transpose() * W_inv * H;
+        const auto& b = H.transpose() * W_inv * e;
+
+        // Eigen::SparseQR<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int>> qr;
+        // qr.compute(A.sparseView());
+        // const auto& x = qr.solve(b);
+
+        // for (int k = 0; k < batchSize; k++) {
+        //     Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * k));
+        //     *estPoseArraySE3_[k] = T_k_star * (*estPoseArraySE3_[k]);
+        // }
+
+        double e_norm = e.norm() / 86 * batchSize;
+        ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  e_norm: " << e_norm);
+        // if (last_e_norm - e_norm < 1e-6) break;
+        // last_e_norm = e_norm;
     }
-    // build e
-    Eigen::VectorXd e_op;
-    e_op << e_v_i, e_y_i;
 
-    // build H
-    Eigen::MatrixXd H;
-    H << H_F, H_G;
+    // // build H
+    // Eigen::MatrixXd H;
+    // H << H_F, H_G;
 
-    // build W
-    int rows = W_Q.rows() + W_R.rows();
-    int cols = W_Q.cols() + W_R.cols();
-    Eigen::MatrixXd W = Eigen::MatrixXd::Zero(rows, cols);
-    W.topLeftCorner(W_Q.rows(), W_Q.cols()) = W_Q;
-    W.bottomRightCorner(W_R.rows(), W_R.cols()) = W_R;
+    // // build W
+    // int rows = W_Q.rows() + W_R.rows();
+    // int cols = W_Q.cols() + W_R.cols();
+    // Eigen::MatrixXd W = Eigen::MatrixXd::Zero(rows, cols);
+    // W.topLeftCorner(W_Q.rows(), W_Q.cols()) = W_Q;
+    // W.bottomRightCorner(W_R.rows(), W_R.cols()) = W_R;
 
-    const auto& A = H.transpose() * W.inverse() * H;
-    const auto& b = H.transpose() * W.inverse() * e_op;
+    // const auto& A = H.transpose() * W.inverse() * H;
+    // const auto& b = H.transpose() * W.inverse() * e_op;
 
-    Eigen::SparseQR<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int> > qr;
-    qr.compute(A.sparseView());
-    const auto& x = qr.solve(b);
+    // ROS_INFO_STREAM("e_op: \n" << e_op);
+    // ROS_INFO_STREAM("H: \n" << H);
+    // ROS_INFO_STREAM("W: \n" << W);
 
-    for (int i = 0; i < batchSize; i++) {
-        Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * i));
-        *estPoseArraySE3_[i] = T_k_star * (*estPoseArraySE3_[i]);
-    }
+    // Eigen::SparseQR<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int> > qr;
+    // qr.compute(A.sparseView());
+    // const auto& x = qr.solve(b);
+
+    // for (int i = 0; i < batchSize; i++) {
+    //     Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * i));
+    //     *estPoseArraySE3_[i] = T_k_star * (*estPoseArraySE3_[i]);
+    // }
 
     // double T_log_array [6 * deadReckoningPoseArraySE3_.size()];
     // for (int i = 0; i < deadReckoningPoseArraySE3_.size(); i++)

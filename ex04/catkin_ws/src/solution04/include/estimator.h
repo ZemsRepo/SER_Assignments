@@ -85,9 +85,13 @@ class Estimator : ParamServer {
 
     Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& p_ck_pj_ck);
 
-    Eigen::Matrix<double,80,6> G_k(const Eigen::Matrix <double, 20, 4> y_k);
+    Eigen::Matrix<double, 80, 6> G_k(const Eigen::Matrix<double, 20, 4> y_k,
+                                     const Sophus::SE3d& T_vi_k);
 
     Eigen::Matrix<double, 4, 6> circleDot(const Eigen::Vector3d& p);
+
+    void insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
+                           const Eigen::SparseMatrix<double>& block, int startRow, int startCol);
 
     // subscriber
     ros::Subscriber imuSub_;
