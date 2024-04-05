@@ -22,6 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 set(3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd_party)
 set(ESTIMATOR_NODE estimator)
+set(CMAKE_CXX_FLAGS "-fopenmp")
 
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)

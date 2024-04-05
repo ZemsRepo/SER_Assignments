@@ -20,8 +20,8 @@
 #include <visualization_msgs/MarkerArray.h>
 
 #include <Eigen/Dense>
-#include <Eigen/SparseCore>
-#include <Eigen/SparseQR>
+#include <Eigen/Sparse>
+#include <Eigen/SparseLU>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <sophus/se3.hpp>
