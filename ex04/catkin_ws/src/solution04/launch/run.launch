@@ -4,5 +4,5 @@
     <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 50 -d 2" output="log" cwd="node"/>
     <node pkg="solution04" type= "estimator" name="estimator" output="screen" cwd="node"/>
     <!-- <node name="rqt_gui" pkg="rqt_gui" type="rqt_gui" args="-p $(find solution04)/assects/viz.perspective" /> -->
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find solution04)/assects/viz.rviz" />
+    <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find solution04)/assects/viz.rviz" /> -->
 </launch>

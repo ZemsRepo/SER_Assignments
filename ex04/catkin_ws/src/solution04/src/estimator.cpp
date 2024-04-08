@@ -273,44 +273,6 @@ void Estimator::insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
     largeMatrix.setFromTriplets(triplets.begin(), triplets.end());
 }
 
-// template <typename T>
-// bool Estimator::ObjectiveFunction::operator()(const T* const T_vk_i_log, T* residuals) const {
-
-//     for (int i = 1; i < batchSize; i++) {
-//         // Sophus::Vector6d T_vk_i_log_vec;
-//         // Sophus::Vector6d T_vk_1_i_log_vec;
-//         Eigen::Matrix<T, 6, 1> T_vk_i_log_vec;
-//         Eigen::Matrix<T, 6, 1> T_vk_1_i_log_vec;
-
-//         for (int j = 0; j < 6; j++) {
-//             // T_vk_i_log_vec(j) = T_vk_i_log[6 * i + j];
-//             // T_vk_1_i_log_vec(j) = T_vk_i_log[6 * (i - 1) + j];
-//         }
-
-//         // const Sophus::SE3d& T_vk_i = Sophus::SE3d::exp(T_vk_i_log_vec);
-//         // const Sophus::SE3d& T_vk_1_i = Sophus::SE3d::exp(T_vk_1_i_log_vec);
-//         // const auto& ksaiUpper_k = *incrementalPoseArraySE3[i];
-//         // const auto& y_k = imgPtsArray[i]->pts;
-
-//         // error_op_vk(ksaiUpper_k, T_vk_1_i, T_vk_i);
-//         // error_op_y_k(y_k, T_vk_i);
-
-//         // residuals[i] = 1 / 2 * e_vk_i.transpose() * Q_k.inverse() * e_vk_i;
-//         // +1 / 2 * e_y_k.transpose() * R_k.inverse() * e_y_k;
-//     }
-
-//     // const Sophus::SE3d& T_vk_i = T_vk_i_log_vec.exp();
-//     // const auto& e_vk_i = error_op_vk(incrementalPoseArraySE3, T_vk_1_i, T_vk_i);
-//     // const auto& e_y_k = error_op_y_k(y_k, T_vk_i);
-//     // const auto& e_vk_i_weighted = Q_k.diagonal().cwiseSqrt().cwiseInverse() * e_vk_i;
-//     // const auto& e_y_k_weighted = R_k.diagonal().cwiseSqrt().cwiseInverse() * e_y_k;
-
-//     // for (int i = 0; i < 6; i++) residuals[i] = e_vk_i_weighted(i);
-//     // for (int i = 0; i < 80; i++) residuals[i + 6] = e_y_k_weighted(i);
-
-//     return true;
-// }
-
 void Estimator::visualize() {
     int baseRate = 10;
     ros::Rate rate(baseRate * vizSpeed_);
@@ -405,93 +367,168 @@ void Estimator::run() {
     int batchSize = stateEnd_ - stateBegin_ + 1;
     int maxIterations = 100;
     int minIterations = 10;
-    double last_e_norm = std::numeric_limits<double>::max();
-
     for (int i = 0; i < maxIterations; i++) {
-        Eigen::SparseMatrix<double> e(86 * batchSize, 1);
-        Eigen::SparseMatrix<double> e_v_i(6 * batchSize, 1);
-        Eigen::SparseMatrix<double> e_y_i(80 * batchSize, 1);
+        Eigen::VectorXf e = Eigen::VectorXf::Zero(86 * batchSize);
+        Eigen::VectorXf e_v = Eigen::VectorXf::Zero(6 * batchSize);
+        Eigen::VectorXf e_y = Eigen::VectorXf::Zero(80 * batchSize);
+        Eigen::MatrixXf H = Eigen::MatrixXf::Zero(86 * batchSize, 6 * batchSize);
+        Eigen::MatrixXf H_F = Eigen::MatrixXf::Zero(6 * batchSize, 6 * batchSize);
+        Eigen::MatrixXf H_G = Eigen::MatrixXf::Zero(80 * batchSize, 6 * batchSize);
+        Eigen::MatrixXf W_Q_inv = Eigen::MatrixXf::Zero(6 * batchSize, 6 * batchSize);
+        Eigen::MatrixXf W_R_inv = Eigen::MatrixXf::Zero(80 * batchSize, 80 * batchSize);
+        Eigen::MatrixXf W_inv = Eigen::MatrixXf::Zero(86 * batchSize, 86 * batchSize);
 
-        Eigen::SparseMatrix<double> H(86 * batchSize, 6 * batchSize);
-        Eigen::SparseMatrix<double> H_F(6 * batchSize, 6 * batchSize);
-        Eigen::SparseMatrix<double> H_G(80 * batchSize, 6 * batchSize);
-
-        Eigen::SparseMatrix<double> W_Q_inv(6 * batchSize, 6 * batchSize);
-        Eigen::SparseMatrix<double> W_R_inv(80 * batchSize, 80 * batchSize);
-        Eigen::SparseMatrix<double> W_inv(86 * batchSize, 86 * batchSize);
-
-        Eigen::SparseMatrix<double> Q_k_inv = Q_k().inverse().sparseView();
-        Eigen::SparseMatrix<double> R_k_inv = R_k().inverse().sparseView();
+        Eigen::MatrixXf Q_k_inv = Q_k().inverse().cast<float>();
+        Eigen::MatrixXf R_k_inv = R_k().inverse().cast<float>();
 
         for (int k = 0; k < batchSize; k++) {
             if (k == 0) {
-                insertSparseBlock(W_Q_inv, Sophus::Matrix6d::Identity().sparseView(), 6 * k, 6 * k);
-                insertSparseBlock(W_R_inv, R_k_inv, 80 * k, 80 * k);
+                auto T_k = *estPoseArraySE3_[k];
+                auto y_k = imgPtsArray_[k + stateBegin_]->pts;
+
+                e_v.segment<6>(6 * k) = Eigen::VectorXf::Zero(6);
+                e_y.segment<80>(80 * k) = Eigen::VectorXf::Zero(80);
+                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXf::Identity(6, 6);
+                H_G.block<80, 6>(80 * k, 6 * k) = G_k(y_k, T_k).cast<float>();
+                W_Q_inv.block<6, 6>(6 * k, 6 * k) = 1000.0 * Eigen::MatrixXf::Identity(6, 6);
+                W_R_inv.block<80, 80>(80 * k, 80 * k) = R_k_inv;
             } else {
-                insertSparseBlock(W_Q_inv, Q_k_inv, 6 * k, 6 * k);
-                insertSparseBlock(W_R_inv, R_k_inv, 80 * k, 80 * k);
+                double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ - 1]->t;
+                auto ksaiUpper_k = *incrementalPoseArraySE3_[k];
+                auto T_k = *estPoseArraySE3_[k];
+                auto T_k_1 = *estPoseArraySE3_[k - 1];
+                auto y_k = imgPtsArray_[k + stateBegin_]->pts;
+
+                e_v.segment<6>(6 * k) = error_op_vk(ksaiUpper_k, T_k_1, T_k).cast<float>();
+                e_y.segment<80>(80 * k) = error_op_y_k(y_k, T_k).cast<float>();
+                H_F.block<6, 6>(6 * k, 6 * (k - 1)) = F_k_1(T_k_1, T_k).cast<float>();
+                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXf::Identity(6, 6);
+                H_G.block<80, 6>(80 * k, 6 * k) = G_k(y_k, T_k).cast<float>();
+                W_Q_inv.block<6, 6>(6 * k, 6 * k) = Q_k_inv / (delta_t * delta_t);
+                W_R_inv.block<80, 80>(80 * k, 80 * k) = R_k_inv;
             }
         }
-        insertSparseBlock(W_inv, W_Q_inv, 0, 0);
-        insertSparseBlock(W_inv, W_R_inv, 6 * batchSize, 6 * batchSize);
+
+        W_inv.block(0, 0, 6 * batchSize, 6 * batchSize) = W_Q_inv;
+        W_inv.block(6 * batchSize, 6 * batchSize, 80 * batchSize, 80 * batchSize) = W_R_inv;
+        H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
+        H.block(6 * batchSize, 0, 80 * batchSize, 6 * batchSize) = H_G;
+
+        Eigen::MatrixXf A = H.transpose() * W_inv * H;
+        Eigen::MatrixXf b = H.transpose() * W_inv * e;
+
+        Eigen::VectorXf x = A.ldlt().solve(b);
+
+        std::ofstream debugLog("/home/zeming/Repos/SER_Assignments/ex04/catkin_ws/log.txt");
+
+        if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
+        debugLog << "iteration: " << i + 1 << std::endl;
+        debugLog << "e_v: \n" << e_v << std::endl;
+        debugLog << "e_y: \n" << e_y << std::endl;
+        debugLog << "W_Q_inv: \n" << W_Q_inv << std::endl;
+        debugLog << "W_R_inv: \n" << W_R_inv << std::endl;
+
+        debugLog << "Q_k_inv: \n" << Q_k_inv << std::endl;
+        debugLog << "R_k_inv: \n" << R_k_inv << std::endl;
+        debugLog.close();
+
+        Eigen::MatrixXf motionError = 1 / 2 * e_v.transpose() * W_Q_inv * e_v;
+        Eigen::MatrixXf measurementError = 1 / 2 * e_y.transpose() * W_R_inv * e_y;
 
         for (int k = 0; k < batchSize; k++) {
-            const auto& T_vk_i = *estPoseArraySE3_[k];
-            const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
-
-            if (k == 0) {
-                // e_v_i.segment<6>(0) = Eigen::Matrix<double, 6, 1>::Zero();
-                // e_y_i.segment<80>(0) = Eigen::Matrix<double, 80, 1>::Zero();
-                // H_F.block<6, 6>(0, 0) = Sophus::Matrix6d::Identity();
-                // H_G.block<80, 6>(0, 0) = G_k(y_k, T_vk_i);
-                insertSparseBlock(e_v_i, Eigen::Matrix<double, 6, 1>::Zero().sparseView(), 0, 0);
-                insertSparseBlock(e_y_i, Eigen::Matrix<double, 80, 1>::Zero().sparseView(), 0, 0);
-                insertSparseBlock(H_F, Sophus::Matrix6d::Identity().sparseView(), 0, 0);
-                insertSparseBlock(H_G, G_k(y_k, T_vk_i).sparseView(), 0, 0);
-
-            } else {
-                const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[k - 1];
-                const auto& ksaiUpper_k = *incrementalPoseArraySE3_[k];
-
-                // e_v_i.segment<6>(6 * k) = error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i);
-                // e_y_i.segment<80>(80 * k) = error_op_y_k(y_k, T_vk_i);
-                // H_F.block<6, 6>(6 * k, 6 * (k - 1)) = F_k_1(T_vk_i_1, T_vk_i);
-                // H_F.block<6, 6>(6 * k, 6 * k) = Sophus::Matrix6d::Identity();
-                // H_G.block<80, 6>(80 * k, 6 * k) = G_k(y_k, T_vk_i);
-
-                insertSparseBlock(e_v_i, error_op_vk(ksaiUpper_k, T_vk_i_1, T_vk_i).sparseView(),
-                                  6 * k, 0);
-                insertSparseBlock(e_y_i, error_op_y_k(y_k, T_vk_i).sparseView(), 80 * k, 0);
-                insertSparseBlock(H_F, F_k_1(T_vk_i_1, T_vk_i).sparseView(), 6 * k, 6 * (k - 1));
-                insertSparseBlock(H_F, Sophus::Matrix6d::Identity().sparseView(), 6 * k, 6 * k);
-                insertSparseBlock(H_G, G_k(y_k, T_vk_i).sparseView(), 80 * k, 6 * k);
-            }
-        }
-        insertSparseBlock(e, e_v_i, 0, 0);
-        insertSparseBlock(e, e_y_i, 6 * batchSize, 0);
-        insertSparseBlock(H, H_F, 0, 0);
-        insertSparseBlock(H, H_G, 6 * batchSize, 0);
-
-        Eigen::SparseMatrix<double> A = H.transpose() * W_inv * H;
-        Eigen::SparseMatrix<double> b = H.transpose() * W_inv * e;
-
-        Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-        A.makeCompressed();
-        solver.analyzePattern(A);
-        solver.factorize(A); 
-        solver.compute(A);
-        Eigen::VectorXd x = solver.solve(b);
-
-        for (int k = 0; k < batchSize; k++) {
-            Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * k));
+            Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * k).cast<double>());
             *estPoseArraySE3_[k] = T_k_star * (*estPoseArraySE3_[k]);
         }
 
-        double e_norm = e.norm() / 86 * batchSize;
-        ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  e_norm: " << e_norm);
-        if (last_e_norm - e_norm < 1e-6) break;
-        last_e_norm = e_norm;
+        ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " << motionError
+                                               << "  measurement error: " << measurementError);
     }
+
+    // for (int i = 0; i < maxIterations; i++) {
+    //     Eigen::SparseMatrix<double> e(86 * batchSize, 1);
+    //     Eigen::SparseMatrix<double> e_v_i(6 * batchSize, 1);
+    //     Eigen::SparseMatrix<double> e_y_i(80 * batchSize, 1);
+
+    //     Eigen::SparseMatrix<double> H(86 * batchSize, 6 * batchSize);
+    //     Eigen::SparseMatrix<double> H_F(6 * batchSize, 6 * batchSize);
+    //     Eigen::SparseMatrix<double> H_G(80 * batchSize, 6 * batchSize);
+
+    //     Eigen::SparseMatrix<double> W_Q_inv(6 * batchSize, 6 * batchSize);
+    //     Eigen::SparseMatrix<double> W_R_inv(80 * batchSize, 80 * batchSize);
+    //     Eigen::SparseMatrix<double> W_inv(86 * batchSize, 86 * batchSize);
+
+    //     Eigen::SparseMatrix<double> Q_k_inv = Q_k().inverse().sparseView();
+    //     Eigen::SparseMatrix<double> R_k_inv = R_k().inverse().sparseView();
+
+    //     // make w
+    //     for (int k = 0; k < batchSize; k++) {
+    //         double delta_t = timeDiffArray[i];
+    //         if (k == 0) {
+    //             Eigen::MatrixXd W_Q_inv_begin(6, 6);
+    //             W_Q_inv_begin.setIdentity();
+    //             W_Q_inv_begin *= 1000;
+    //             insertSparseBlock(W_Q_inv, W_Q_inv_begin.sparseView(), 6 * k, 6 * k);
+    //             insertSparseBlock(W_R_inv, R_k_inv / (delta_t * delta_t), 80 * k, 80 * k);
+    //         } else {
+    //             insertSparseBlock(W_Q_inv, Q_k_inv / (delta_t * delta_t), 6 * k, 6 * k);
+    //             insertSparseBlock(W_R_inv, R_k_inv / (delta_t * delta_t), 80 * k, 80 * k);
+    //         }
+    //     }
+    //     insertSparseBlock(W_inv, W_Q_inv, 0, 0);
+    //     insertSparseBlock(W_inv, W_R_inv, 6 * batchSize, 6 * batchSize);
+
+    //     // make e
+    //     for (int k = 0; k < batchSize; k++) {
+    //         const auto& T_vk_i = *estPoseArraySE3_[k];
+    //         const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+
+    //         if (k == 0) {
+    //             insertSparseBlock(e_v_i, Eigen::Matrix<double, 6, 1>::Zero().sparseView(), 0,
+    //             0); insertSparseBlock(e_y_i, Eigen::Matrix<double, 80,
+    //             1>::Zero().sparseView(), 0, 0); insertSparseBlock(H_F,
+    //             Sophus::Matrix6d::Identity().sparseView(), 0, 0); insertSparseBlock(H_G,
+    //             G_k(y_k, T_vk_i).sparseView(), 0, 0);
+
+    //         } else {
+    //             const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[k - 1];
+    //             const auto& ksaiUpper_k = *incrementalPoseArraySE3_[k];
+
+    //             insertSparseBlock(e_v_i, error_op_vk(ksaiUpper_k, T_vk_i_1,
+    //             T_vk_i).sparseView(),
+    //                               6 * k, 0);
+    //             insertSparseBlock(e_y_i, error_op_y_k(y_k, T_vk_i).sparseView(), 80 * k, 0);
+    //             insertSparseBlock(H_F, F_k_1(T_vk_i_1, T_vk_i).sparseView(), 6 * k, 6 * (k -
+    //             1)); insertSparseBlock(H_F, Sophus::Matrix6d::Identity().sparseView(), 6 * k,
+    //             6 * k); insertSparseBlock(H_G, G_k(y_k, T_vk_i).sparseView(), 80 * k, 6 * k);
+    //         }
+    //     }
+    //     insertSparseBlock(e, e_v_i, 0, 0);
+    //     insertSparseBlock(e, e_y_i, 6 * batchSize, 0);
+    //     insertSparseBlock(H, H_F, 0, 0);
+    //     insertSparseBlock(H, H_G, 6 * batchSize, 0);
+
+    //     Eigen::SparseMatrix<double> A = H.transpose() * W_inv * H;
+    //     Eigen::SparseMatrix<double> b = H.transpose() * W_inv * e;
+
+    //     Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+    //     solver.analyzePattern(A);
+    //     solver.factorize(A);
+    //     solver.compute(A);
+    //     Eigen::VectorXd x = solver.solve(b);
+
+    //     for (int k = 0; k < batchSize; k++) {
+    //         Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * k));
+    //         *estPoseArraySE3_[k] = T_k_star * (*estPoseArraySE3_[k]);
+    //     }
+
+    //     Eigen::MatrixXd motionError = 1 / 2 * e_v_i.transpose() * W_Q_inv * e_v_i;
+    //     Eigen::MatrixXd measurementError = 1 / 2 * e_y_i.transpose() * W_R_inv * e_y_i;
+
+    //     ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " <<
+    //     motionError.norm()
+    //                                            << "  measurement error: "
+    //                                            << measurementError.norm());
+    // }
 
     // // build H
     // Eigen::MatrixXd H;
@@ -532,8 +569,8 @@ void Estimator::run() {
     // ceres::CostFunction* cost_function =
     //     new ceres::AutoDiffCostFunction<ObjectiveFunction, Utils::batchSize, 6 *
     //     Utils::batchSize>(
-    //         new ObjectiveFunction(Utils::batchSize, incrementalPoseArraySE3_, imgPtsArray_, Q,
-    //         R));
+    //         new ObjectiveFunction(Utils::batchSize, incrementalPoseArraySE3_, imgPtsArray_,
+    //         Q, R));
     // problem.AddResidualBlock(cost_function, nullptr, T_log_array);
 
     // ceres::Solver::Options options;
