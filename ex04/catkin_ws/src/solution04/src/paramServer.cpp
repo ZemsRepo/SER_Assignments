@@ -30,6 +30,8 @@ ParamServer::ParamServer() {
     nh_.param<int>("stateBegin", stateBegin_, 0);
     nh_.param<int>("stateEnd", stateEnd_, 0);
     nh_.param<int>("slidingWindowSize", slidingWindowSize_, 10);
+    nh_.param<int>("maxIterations", maxIterations_, 10);
+    nh_.param<int>("minIterations", minIterations_, 5);
 
     // std::vector to eigen
     worldFrameLandmarks_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(

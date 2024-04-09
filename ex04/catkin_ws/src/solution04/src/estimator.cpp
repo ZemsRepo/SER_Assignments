@@ -31,7 +31,7 @@ Estimator::Estimator() : ParamServer() {
     vizFrame_ = 0;
 }
 Estimator::~Estimator() {
-    for (auto poseSE3 : deadReckoningPoseArraySE3_) delete poseSE3;
+    for (auto poseSE3 : deadReckonPoseArraySE3_) delete poseSE3;
     for (auto poseSE3 : estPoseArraySE3_) delete poseSE3;
     for (auto imgPts : deadReckoningImgPtsArray_) delete imgPts;
 };
@@ -90,11 +90,11 @@ Eigen::Matrix3d Estimator::skewSymmetric(const Eigen::Vector3d& v) {
     return (Eigen::Matrix3d() << 0, -v(2), v(1), v(2), 0, -v(0), -v(1), v(0), 0).finished();
 }
 
-Eigen::Matrix3d Estimator::rotVecToRotMat(const Eigen::Vector3d& w) {
-    const auto& w_norm = w.norm();
+Eigen::Matrix3d Estimator::rotVecToRotMat(const Eigen::Vector3d& v) {
+    const auto& v_norm = v.norm();
     const auto& I = Eigen::Matrix3d::Identity();
-    return cos(w_norm) * I + (1 - cos(w_norm)) * (w / w_norm) * (w / w_norm).transpose() -
-           sin(w_norm) * skewSymmetric(w / w_norm);
+    return cos(v_norm) * I + (1 - cos(v_norm)) * (v / v_norm) * (v / v_norm).transpose() -
+           sin(v_norm) * skewSymmetric(v / v_norm);
 }
 
 Sophus::SE3d Estimator::poseVecToSE3Pose(const Eigen::Vector3d& theta, const Eigen::Vector3d& r) {
@@ -108,8 +108,7 @@ Sophus::SE3d Estimator::computeIncrementalSE3Pose(const double& delta_t, const I
     const auto& v = imu->v;
     const auto& d = v * delta_t;
     const auto& psi = w * delta_t;
-    auto&& ksaiUpper = poseVecToSE3Pose(psi, d);
-    return ksaiUpper;
+    return poseVecToSE3Pose(psi, d);
 }
 
 void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
@@ -123,9 +122,22 @@ void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
     r_i_vk_i = r_i_vk_1_i + C_vk_1_i.transpose() * d;
 }
 
+// Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
+//                                     const Sophus::SE3d& T_vk_1_i) {
+//     const auto& w = imu->w;
+//     const auto& v = imu->v;
+//     const auto& d = v * delta_t;
+//     const auto& psi = w * delta_t;
+
+//     const auto& C_vk_i = rotVecToRotMat(psi) * T_vk_1_i.rotationMatrix();
+//     const auto& r_i_vk_i =
+//         T_vk_1_i.inverse().translation() + T_vk_1_i.rotationMatrix().transpose() * d;
+//     return Sophus::SE3d(C_vk_i, -C_vk_i * r_i_vk_i);
+// }
+
 Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
-                                    const Sophus::SE3d& T_vk_1_i) {
-    return computeIncrementalSE3Pose(delta_t, imu) * T_vk_1_i;
+                                    const Sophus::SE3d& T_k_1) {
+    return computeIncrementalSE3Pose(delta_t, imu) * T_k_1;
 }
 
 Eigen::Matrix<double, 20, 3> Estimator::cameraFrameLandmarks(const Eigen::Matrix3d& C_vk_i,
@@ -187,9 +199,8 @@ Eigen::Vector4d Estimator::observationModel(const Sophus::SE3d& T_k,
 }
 
 Sophus::Vector6d Estimator::computeMotionError(const Sophus::SE3d& ksaiUpper_k,
-                                               const Sophus::SE3d& T_op_k_1,
-                                               const Sophus::SE3d& T_op_k) {
-    return (ksaiUpper_k * T_op_k_1 * T_op_k.inverse()).log();
+                                               const Sophus::SE3d& T_k_1, const Sophus::SE3d& T_k) {
+    return (ksaiUpper_k * T_k_1 * T_k.inverse()).log();
 }
 
 Sophus::Matrix6d Estimator::F_k_1(const Sophus::SE3d& T_k_1, const Sophus::SE3d& T_k) {
@@ -218,46 +229,47 @@ Eigen::VectorXd Estimator::computeObservationError(const Eigen::Matrix<double, 2
     return error_y_k;
 }
 
-Eigen::DiagonalMatrix<double, 6> Estimator::Q_k(double delta_t) {
-    Eigen::DiagonalMatrix<double, 6> Q_k;
-    Q_k.diagonal() << v_var_ * delta_t * delta_t, w_var_ * delta_t * delta_t;
-    return Q_k;
+Eigen::DiagonalMatrix<double, 6> Estimator::Q_k_inv(double delta_t) {
+    Eigen::DiagonalMatrix<double, 6> Q_k_inv;
+    Q_k_inv.diagonal().segment<3>(0) = v_var_.cwiseInverse() / (delta_t * delta_t);
+    Q_k_inv.diagonal().segment<3>(3) = w_var_.cwiseInverse() / (delta_t * delta_t);
+    return Q_k_inv;
 }
 
-Eigen::DiagonalMatrix<double, 4> Estimator::R_jk() { return y_var_.asDiagonal(); }
+Eigen::DiagonalMatrix<double, 4> Estimator::R_jk_inv() {
+    return y_var_.cwiseInverse().asDiagonal();
+}
 
-Eigen::DiagonalMatrix<double, -1> Estimator::R_k(const Eigen::Matrix<double, 20, 4>& y_k) {
+Eigen::DiagonalMatrix<double, -1> Estimator::R_k_inv(const Eigen::Matrix<double, 20, 4>& y_k) {
     const std::vector<u_int16_t>& observableImgPtsIdxArray = countObservableImgPtsIdx(y_k);
     uint16_t observableImgPtsNum = observableImgPtsIdxArray.size();
     Eigen::DiagonalMatrix<double, -1> R_k(4 * observableImgPtsNum);
     int counter = 0;
     for (const auto idx : observableImgPtsIdxArray) {
-        R_k.diagonal().segment<4>(counter * 4) = R_jk().diagonal();
+        R_k.diagonal().segment<4>(counter * 4) = y_var_.cwiseInverse();
         counter++;
     }
 
     return R_k;
 }
 
-Eigen::Matrix<double, 4, 6> Estimator::G_jk(const Eigen::Vector3d& cameraFrameLandmark) {
-    Eigen::Matrix4d S_jk;
+Eigen::Matrix<double, 4, 6> Estimator::G_jk(const Sophus::SE3d& T_k,
+                                            const Eigen::Vector3d& worldFrameLandmark) {
+    const auto& cameraFrameLandmark = transformWorldFrameToCameraFrame(worldFrameLandmark, T_k);
     double x = cameraFrameLandmark.x();
     double y = cameraFrameLandmark.y();
     double z = cameraFrameLandmark.z();
 
-    S_jk << /*r1*/ -fu_ / z, 0, -fu_ * x / (z * z), 0, /*r2*/ 0, fv_ / z, -fv_ * y / (z * z), 0,
+    Eigen::Matrix4d S_jk;
+    S_jk << /*r1*/ fu_ / z, 0, -fu_ * x / (z * z), 0, /*r2*/ 0, fv_ / z, -fv_ * y / (z * z), 0,
         /*r3*/ fu_ / z, 0, -fu_ * (x - b_) / (z * z), 0, /*r4*/ 0, fv_ / z, -fv_ * y / (z * z), 0;
 
-    const auto& Z_jk = circleDot(cameraFrameLandmark);
-    return S_jk * Z_jk;
-}
+    Eigen::Matrix<double, 4, 6> Z_jk;
+    Z_jk.block<3, 3>(0, 0) = -C_c_v_ * T_k.rotationMatrix();
+    Z_jk.block<3, 3>(0, 3) = -C_c_v_ * skewSymmetric(T_k * worldFrameLandmark);
+    Z_jk.block<1, 6>(3, 0) = Eigen::Matrix<double, 1, 6>::Zero();
 
-Eigen::Matrix<double, 4, 6> Estimator::circleDot(const Eigen::Vector3d& p) {
-    Eigen::Matrix<double, 4, 6> p_circleDot;
-    p_circleDot.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
-    p_circleDot.block<3, 3>(0, 3) = -skewSymmetric(p);
-    p_circleDot.block<1, 6>(3, 0) = Eigen::Matrix<double, 1, 6>::Zero();
-    return p_circleDot;
+    return S_jk * Z_jk;
 }
 
 Eigen::Matrix<double, -1, 6> Estimator::G_k(const Eigen::Matrix<double, 20, 4>& y_k,
@@ -269,8 +281,7 @@ Eigen::Matrix<double, -1, 6> Estimator::G_k(const Eigen::Matrix<double, 20, 4>& 
     for (const auto idx : observableImgPtsIdxArray) {
         const auto& y_jk = y_k.row(idx);
         const auto& worldFrameLandmark = worldFrameLandmarks_.row(idx);
-        const auto& cameraFrameLandmark = transformWorldFrameToCameraFrame(worldFrameLandmark, T_k);
-        G_k.block<4, 6>(4 * counter, 0) = G_jk(cameraFrameLandmark);
+        G_k.block<4, 6>(4 * counter, 0) = G_jk(T_k, worldFrameLandmark);
         counter++;
     }
 
@@ -312,7 +323,7 @@ void Estimator::visualize() {
             const auto thisImgPts = imgPtsArray_[stateBegin_ + vizFrame_];
             const auto thisGtPose = gtPoseArray_[stateBegin_ + vizFrame_];
 
-            const auto thisDeadReckoningPose = deadReckoningPoseArraySE3_[vizFrame_];
+            const auto thisDeadReckoningPose = deadReckonPoseArraySE3_[vizFrame_];
             const auto C = thisDeadReckoningPose->rotationMatrix();
             const auto r = thisDeadReckoningPose->inverse().translation();
 
@@ -374,29 +385,28 @@ void Estimator::run() {
     const auto gt_pose_begin = gtPoseArray_[stateBegin_];
     auto&& T_vk_begin_i = poseVecToSE3Pose(gt_pose_begin->theta, gt_pose_begin->r);
     incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
-    deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+    deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
     estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
 
     for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
         double delta_t = imuArray_[i]->t - imuArray_[i - 1]->t;
-        const auto& T_vk_1_i = *deadReckoningPoseArraySE3_.back();
-        const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, imuArray_[i]);
-        const auto& T_vk_i = ksaiUpper_k * T_vk_1_i;
+        const Imu::Ptr lastImu = imuArray_[i - 1];
+        const auto& T_k_1 = *deadReckonPoseArraySE3_.back();
+        const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, lastImu);
+        const auto& T_k = motionModel(delta_t, lastImu, T_k_1);
 
         incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
-        deadReckoningPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
-        estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_i));
+        deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
+        estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
     }
 
-    for (const auto T_vk_i : deadReckoningPoseArraySE3_) {
-        const auto& imgPts = observationModel(*T_vk_i);
+    for (const auto T_k : deadReckonPoseArraySE3_) {
+        const auto& imgPts = observationModel(*T_k);
         deadReckoningImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
     }
 
     // FIXME:
     int batchSize = stateEnd_ - stateBegin_ + 1;
-    int maxIterations = 100;
-    int minIterations = 10;
 
     std::vector<u_int16_t> observableImgPtsNumArray;
     int totalObservableImgPtsNum = 0;
@@ -406,7 +416,7 @@ void Estimator::run() {
         totalObservableImgPtsNum += observableImgPtsNumArray[k];
     }
 
-    for (int i = 0; i < maxIterations; i++) {
+    for (int i = 0; i < maxIterations_; i++) {
         Eigen::VectorXf e = Eigen::VectorXf::Zero(6 * batchSize + 4 * totalObservableImgPtsNum);
         Eigen::VectorXf e_v = Eigen::VectorXf::Zero(6 * batchSize);
         Eigen::VectorXf e_y = Eigen::VectorXf::Zero(4 * totalObservableImgPtsNum);
@@ -426,14 +436,14 @@ void Estimator::run() {
                 e_v.segment<6>(6 * k) = Eigen::VectorXf::Zero(6);
                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXf::Identity(6, 6);
                 W_Q_inv.diagonal().segment<6>(6 * k) =
-                    1000.0 * Eigen::MatrixXf::Identity(6, 6).diagonal();
+                    100.0 * Eigen::MatrixXf::Identity(6, 6).diagonal();
 
                 int observableImgPtsNum = observableImgPtsNumArray[k];
                 e_y.segment(0, 4 * observableImgPtsNum) =
                     computeObservationError(y_k, T_k).cast<float>();
                 H_G.block(0, 0, 4 * observableImgPtsNum, 6) = G_k(y_k, T_k).cast<float>();
                 W_R_inv.diagonal().segment(0, 4 * observableImgPtsNum) =
-                    R_k(y_k).inverse().diagonal().cast<float>();
+                    R_k_inv(y_k).diagonal().cast<float>();
                 lastObservableImgPtsIdx += observableImgPtsNum;
             } else {
                 double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ - 1]->t;
@@ -445,8 +455,7 @@ void Estimator::run() {
                 e_v.segment<6>(6 * k) = computeMotionError(ksaiUpper_k, T_k_1, T_k).cast<float>();
                 H_F.block<6, 6>(6 * k, 6 * (k - 1)) = -F_k_1(T_k_1, T_k).cast<float>();
                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXf::Identity(6, 6);
-                W_Q_inv.diagonal().segment<6>(6 * k) =
-                    Q_k(delta_t).inverse().diagonal().cast<float>();
+                W_Q_inv.diagonal().segment<6>(6 * k) = Q_k_inv(delta_t).diagonal().cast<float>();
 
                 int observableImgPtsNum = observableImgPtsNumArray[k];
                 e_y.segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
@@ -454,7 +463,7 @@ void Estimator::run() {
                 H_G.block(4 * lastObservableImgPtsIdx, 6 * k, 4 * observableImgPtsNum, 6) =
                     G_k(y_k, T_k).cast<float>();
                 W_R_inv.diagonal().segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
-                    R_k(y_k).inverse().diagonal().cast<float>();
+                    R_k_inv(y_k).diagonal().cast<float>();
                 lastObservableImgPtsIdx += observableImgPtsNum;
             }
         }
@@ -473,7 +482,7 @@ void Estimator::run() {
 
         Eigen::VectorXf x = A.ldlt().solve(b);
 
-        std::ofstream debugLog("/home/zeming/MasterThesis/SER_Assignments/ex04/catkin_ws/log.txt");
+        std::ofstream debugLog("/home/zeming/Repos/SER_Assignments/ex04/catkin_ws/log.txt");
 
         if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
         debugLog << "iteration: " << i + 1 << std::endl;

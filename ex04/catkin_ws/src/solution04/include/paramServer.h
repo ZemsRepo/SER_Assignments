@@ -35,6 +35,8 @@ class ParamServer {
     int stateBegin_;
     int stateEnd_;
     int slidingWindowSize_;
+    int maxIterations_;
+    int minIterations_;
 };
 
 #endif  // SOLUTION04_INCLUDE_PARAMSERVER_H

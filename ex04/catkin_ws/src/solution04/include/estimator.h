@@ -78,18 +78,17 @@ class Estimator : ParamServer {
 
     Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_k_1, const Sophus::SE3d& T_k);
 
-    Eigen::DiagonalMatrix<double, 6> Q_k(double delta_t);
+    Eigen::DiagonalMatrix<double, 6> Q_k_inv(double delta_t);
 
-    Eigen::DiagonalMatrix<double, 4> R_jk();
+    Eigen::DiagonalMatrix<double, 4> R_jk_inv();
 
-    Eigen::DiagonalMatrix<double, -1> R_k(const Eigen::Matrix<double, 20, 4>& y_k);
+    Eigen::DiagonalMatrix<double, -1> R_k_inv(const Eigen::Matrix<double, 20, 4>& y_k);
 
-    Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& cameraFrameLandmark);
+    Eigen::Matrix<double, 4, 6> G_jk(const Sophus::SE3d& T_k,
+                                     const Eigen::Vector3d& worldFrameLandmark);
 
     Eigen::Matrix<double, -1, 6> G_k(const Eigen::Matrix<double, 20, 4>& y_k,
                                      const Sophus::SE3d& T_k);
-
-    Eigen::Matrix<double, 4, 6> circleDot(const Eigen::Vector3d& p);
 
     bool thisImgPtIsObservable(const Eigen::Vector4d& imgPt);
 
@@ -124,7 +123,7 @@ class Estimator : ParamServer {
     std::vector<ImgPts::Ptr> imgPtsArray_;
     std::vector<Pose::Ptr> gtPoseArray_;
     std::vector<const Sophus::SE3d*> incrementalPoseArraySE3_;
-    std::vector<const Sophus::SE3d*> deadReckoningPoseArraySE3_;
+    std::vector<const Sophus::SE3d*> deadReckonPoseArraySE3_;
     std::vector<Sophus::SE3d*> estPoseArraySE3_;
     std::vector<Eigen::Matrix<double, 20, 4>*> deadReckoningImgPtsArray_;
 
