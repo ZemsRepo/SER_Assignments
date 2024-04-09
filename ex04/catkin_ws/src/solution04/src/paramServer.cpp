@@ -32,7 +32,7 @@ ParamServer::ParamServer() {
     nh_.param<int>("slidingWindowSize", slidingWindowSize_, 10);
 
     // std::vector to eigen
-    landmarks3dPts_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
+    worldFrameLandmarks_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(
         landmarks3dPts_v.data(), 20, 3);
     C_c_v_ = Eigen::Map<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>>(C_c_v_v.data(), 3, 3);
     rho_v_c_v_ =
@@ -52,7 +52,7 @@ ParamServer::ParamServer() {
         ROS_INFO_STREAM("cv: " << cv_);
         ROS_INFO_STREAM("fu: " << fu_);
         ROS_INFO_STREAM("fv: " << fv_);
-        ROS_INFO_STREAM("landmarks3dPts: \n" << landmarks3dPts_);
+        ROS_INFO_STREAM("landmarks3dPts: \n" << worldFrameLandmarks_);
     }
 }
 

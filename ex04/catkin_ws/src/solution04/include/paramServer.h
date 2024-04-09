@@ -28,7 +28,7 @@ class ParamServer {
     Eigen::Vector4d y_var_;
 
     // landmarks
-    Eigen::Matrix<double, 20, 3> landmarks3dPts_;
+    Eigen::Matrix<double, 20, 3> worldFrameLandmarks_;
 
     // self-defined parameters
     float vizSpeed_;

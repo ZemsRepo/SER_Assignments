@@ -30,7 +30,7 @@ class Estimator : ParamServer {
         const Sophus::Matrix6d& Q_k;
         const Eigen::Matrix<double, 80, 80>& R_k;
         template <typename T>
-        bool operator()(const T* const T_vk_i, T* residuals) const;
+        bool operator()(const T* const T_k, T* residuals) const;
     };
 
    private:
@@ -39,9 +39,9 @@ class Estimator : ParamServer {
     void gtPoseCallBack(const solution04::MyPose::ConstPtr& msg);
 
     Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d& v);
-    Eigen::Matrix3d expMap(const Eigen::Vector3d& v);
+    Eigen::Matrix3d rotVecToRotMat(const Eigen::Vector3d& v);
 
-    Sophus::SE3d incrementalPose(const double& delta_t, const Imu::Ptr imu);
+    Sophus::SE3d computeIncrementalSE3Pose(const double& delta_t, const Imu::Ptr imu);
 
     void motionModel(const double& delta_t, const Imu::Ptr imu, const Eigen::Matrix3d& C_vk_i_1,
                      const Eigen::Vector3d& r_i_vk_i_1, Eigen::Matrix3d& C_vk_i,
@@ -50,45 +50,50 @@ class Estimator : ParamServer {
     Sophus::SE3d motionModel(const double& delta_t, const Imu::Ptr imu,
                              const Sophus::SE3d& T_vk_1_i);
 
-    Sophus::SE3d vecToSE3(const Eigen::Vector3d& theta, const Eigen::Vector3d& r);
+    Sophus::SE3d poseVecToSE3Pose(const Eigen::Vector3d& theta, const Eigen::Vector3d& r);
 
-    Eigen::Matrix<double, 20, 3> camera3dPts(const Eigen::Matrix3d& C_vk_i,
-                                             const Eigen::Vector3d& r_i_vk_i);
+    Eigen::Matrix<double, 20, 3> cameraFrameLandmarks(const Eigen::Matrix3d& C_vk_i,
+                                                      const Eigen::Vector3d& r_i_vk_i);
 
-    Eigen::Matrix<double, 20, 3> camera3dPts(const Sophus::SE3d& T_vk_i);
+    Eigen::Matrix<double, 20, 3> cameraFrameLandmarks(const Sophus::SE3d& T_k);
 
-    Eigen::Vector3d transformToCameraFrame(const Eigen::Vector3d& landmark,
-                                           const Sophus::SE3d& T_vk_i);
+    Eigen::Vector3d transformWorldFrameToCameraFrame(const Eigen::Vector3d& worldFrameLandmark,
+                                                     const Sophus::SE3d& T_k);
 
-    Eigen::Vector4d transformToImgPts(const Eigen::Vector3d& p_ck_pj_ck);
+    Eigen::Vector4d transformCamreaFramePtToImgPt(const Eigen::Vector3d& p_ck_pj_ck);
 
-    Eigen::Matrix<double, 20, 4> observationModel(const Sophus::SE3d& T_vk_i);
+    Eigen::Matrix<double, 20, 4> observationModel(const Sophus::SE3d& T_k);
 
-    Eigen::Vector4d observationModel(const Sophus::SE3d& T_vk_i, const Eigen::Vector3d rho_i_pj_i);
+    Eigen::Vector4d observationModel(const Sophus::SE3d& T_k, const Eigen::Vector3d& rho_i_pj_i);
 
-    Sophus::Vector6d error_op_vk(const Sophus::SE3d& ksaiUpper_k, const Sophus::SE3d& T_op_k_1,
-                                 const Sophus::SE3d& T_op_k);
+    Sophus::Vector6d computeMotionError(const Sophus::SE3d& ksaiUpper_k, const Sophus::SE3d& T_k_1,
+                                        const Sophus::SE3d& T_k);
 
-    Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_op_k_1, const Sophus::SE3d& T_op_k);
+    Eigen::Vector4d computeSingleLandmarkObservationError(
+        const Eigen::Vector4d& y_jk, const Sophus::SE3d& T_k,
+        const Eigen::Vector3d& cameraFrameLandmark);
 
-    Sophus::Vector4d error_op_y_jk(const Eigen::Vector4d& y_jk, const Sophus::SE3d& T_op_k,
-                                   const Eigen::Vector3d p_ck_pj_ck);
+    Eigen::VectorXd computeObservationError(const Eigen::Matrix<double, 20, 4>& y_k,
+                                            const Sophus::SE3d& T_k);
 
-    Eigen::Matrix<double, 80, 1> error_op_y_k(const Eigen::Matrix<double, 20, 4>& y_k,
-                                              const Sophus::SE3d& T_op_k);
+    Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_k_1, const Sophus::SE3d& T_k);
 
-    Sophus::Matrix6d Q_k();
+    Eigen::DiagonalMatrix<double, 6> Q_k(double delta_t);
 
-    Sophus::Matrix4d R_jk();
+    Eigen::DiagonalMatrix<double, 4> R_jk();
 
-    Eigen::Matrix<double, 80, 80> R_k();
+    Eigen::DiagonalMatrix<double, -1> R_k(const Eigen::Matrix<double, 20, 4>& y_k);
 
-    Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& p_ck_pj_ck);
+    Eigen::Matrix<double, 4, 6> G_jk(const Eigen::Vector3d& cameraFrameLandmark);
 
-    Eigen::Matrix<double, 80, 6> G_k(const Eigen::Matrix<double, 20, 4> y_k,
-                                     const Sophus::SE3d& T_vi_k);
+    Eigen::Matrix<double, -1, 6> G_k(const Eigen::Matrix<double, 20, 4>& y_k,
+                                     const Sophus::SE3d& T_k);
 
     Eigen::Matrix<double, 4, 6> circleDot(const Eigen::Vector3d& p);
+
+    bool thisImgPtIsObservable(const Eigen::Vector4d& imgPt);
+
+    std::vector<uint16_t> countObservableImgPtsIdx(const Eigen::Matrix<double, 20, 4>& imgPts);
 
     void insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
                            const Eigen::SparseMatrix<double>& block, int startRow, int startCol);
