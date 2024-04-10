@@ -40,6 +40,7 @@ class Estimator : ParamServer {
 
     Eigen::Matrix3d skewSymmetric(const Eigen::Vector3d& v);
     Eigen::Matrix3d rotVecToRotMat(const Eigen::Vector3d& v);
+    Eigen::Vector3d rotMatToRotVec(const Eigen::Matrix3d& C);
 
     Sophus::SE3d computeIncrementalSE3Pose(const double& delta_t, const Imu::Ptr imu);
 
@@ -76,7 +77,9 @@ class Estimator : ParamServer {
     Eigen::VectorXd computeObservationError(const Eigen::Matrix<double, 20, 4>& y_k,
                                             const Sophus::SE3d& T_k);
 
-    Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_k_1, const Sophus::SE3d& T_k);
+    Sophus::Matrix6d F_k_1(const Sophus::SE3d& T_k, const Sophus::SE3d& T_k_1);
+
+    Sophus::Matrix6d adjoint(const Sophus::SE3d& T_k);
 
     Eigen::DiagonalMatrix<double, 6> Q_k_inv(double delta_t);
 
@@ -125,7 +128,7 @@ class Estimator : ParamServer {
     std::vector<const Sophus::SE3d*> incrementalPoseArraySE3_;
     std::vector<const Sophus::SE3d*> deadReckonPoseArraySE3_;
     std::vector<Sophus::SE3d*> estPoseArraySE3_;
-    std::vector<Eigen::Matrix<double, 20, 4>*> deadReckoningImgPtsArray_;
+    std::vector<Eigen::Matrix<double, 20, 4>*> deadReckonImgPtsArray_;
 
     bool lastImuFlag_;
     bool lastImgPtsFlag_;
