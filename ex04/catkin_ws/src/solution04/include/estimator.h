@@ -14,25 +14,7 @@ class Estimator : ParamServer {
     ~Estimator();
     void run();
     void visualize();
-    struct ObjectiveFunction {
-        ObjectiveFunction(const int batchSize,
-                          const std::vector<const Sophus::SE3d*>& incrementalPoseArraySE3,
-                          const std::vector<ImgPts::Ptr>& imgPtsArray, const Sophus::Matrix6d& Q_k,
-                          const Eigen::Matrix<double, 80, 80>& R_k)
-            : batchSize(batchSize),
-              incrementalPoseArraySE3(incrementalPoseArraySE3),
-              imgPtsArray(imgPtsArray),
-              Q_k(Q_k),
-              R_k(R_k) {}
-        int batchSize;
-        const std::vector<const Sophus::SE3d*>& incrementalPoseArraySE3;
-        const std::vector<ImgPts::Ptr>& imgPtsArray;
-        const Sophus::Matrix6d& Q_k;
-        const Eigen::Matrix<double, 80, 80>& R_k;
-        template <typename T>
-        bool operator()(const T* const T_k, T* residuals) const;
-    };
-
+    
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
     void imgPtsCallBack(const solution04::ImgPts::ConstPtr& msg);

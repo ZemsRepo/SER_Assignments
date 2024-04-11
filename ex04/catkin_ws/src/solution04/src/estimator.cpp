@@ -450,287 +450,176 @@ void Estimator::run() {
     // FIXME:
     int batchSize = stateEnd_ - stateBegin_ + 1;
 
-    std::vector<u_int16_t> observableImgPtsNumArray;
-    int totalObservableImgPtsNum = 0;
-    for (int k = 0; k < batchSize; k++) {
-        const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
-        observableImgPtsNumArray.push_back(countObservableImgPtsIdx(y_k).size());
-        totalObservableImgPtsNum += observableImgPtsNumArray[k];
+    double* estPoseArray = new double[7 * batchSize];
+    for (int i = 0; i < batchSize; i++) {
+        const auto T_k = estPoseArraySE3_[i];
+        estPoseArray[7 * i] = T_k->unit_quaternion().x();
+        estPoseArray[7 * i + 1] = T_k->unit_quaternion().y();
+        estPoseArray[7 * i + 2] = T_k->unit_quaternion().z();
+        estPoseArray[7 * i + 3] = T_k->unit_quaternion().w();
+        estPoseArray[7 * i + 4] = T_k->translation().x();
+        estPoseArray[7 * i + 5] = T_k->translation().y();
+        estPoseArray[7 * i + 6] = T_k->translation().z();
     }
 
-    for (int i = 0; i < maxIterations_; i++) {
-        Eigen::VectorXd e = Eigen::VectorXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum);
-        Eigen::VectorXd e_v = Eigen::VectorXd::Zero(6 * batchSize);
-        Eigen::VectorXd e_y = Eigen::VectorXd::Zero(4 * totalObservableImgPtsNum);
-        Eigen::MatrixXd H =
-            Eigen::MatrixXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum, 6 * batchSize);
-        Eigen::MatrixXd H_F = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
-        Eigen::MatrixXd H_G = Eigen::MatrixXd::Zero(4 * totalObservableImgPtsNum, 6 * batchSize);
-        Eigen::DiagonalMatrix<double, -1> W_Q_inv(6 * batchSize);
-        Eigen::DiagonalMatrix<double, -1> W_R_inv(4 * totalObservableImgPtsNum);
-        Eigen::DiagonalMatrix<double, -1> W_inv(6 * batchSize + 4 * totalObservableImgPtsNum);
-        int lastObservableImgPtsIdx = 0;
-        for (int k = 0; k < batchSize; k++) {
-            if (k == 0) {
-                const auto& T_k = *estPoseArraySE3_[k];
-                const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+    ceres::Problem problem;
+    for (int i = 0; i < batchSize; i++) {
 
-                e_v.segment<6>(6 * k) = Eigen::VectorXd::Zero(6);
-                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
-                W_Q_inv.diagonal().segment<6>(6 * k) =
-                    100.0 * Eigen::MatrixXd::Identity(6, 6).diagonal();
-
-                int observableImgPtsNum = observableImgPtsNumArray[k];
-                e_y.segment(0, 4 * observableImgPtsNum) = computeObservationError(y_k, T_k);
-                H_G.block(0, 0, 4 * observableImgPtsNum, 6) = G_k(y_k, T_k);
-                W_R_inv.diagonal().segment(0, 4 * observableImgPtsNum) = R_k_inv(y_k).diagonal();
-                lastObservableImgPtsIdx += observableImgPtsNum;
-            } else {
-                double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ - 1]->t;
-                auto ksaiUpper_k = *incrementalPoseArraySE3_[k];
-                auto T_k = *estPoseArraySE3_[k];
-                auto T_k_1 = *estPoseArraySE3_[k - 1];
-                auto y_k = imgPtsArray_[k + stateBegin_]->pts;
-
-                e_v.segment<6>(6 * k) = computeMotionError(ksaiUpper_k, T_k_1, T_k);
-                H_F.block<6, 6>(6 * k, 6 * (k - 1)) = -F_k_1(T_k, T_k_1);
-                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
-                W_Q_inv.diagonal().segment<6>(6 * k) = Q_k_inv(delta_t).diagonal();
-
-                int observableImgPtsNum = observableImgPtsNumArray[k];
-                e_y.segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
-                    computeObservationError(y_k, T_k);
-                H_G.block(4 * lastObservableImgPtsIdx, 6 * k, 4 * observableImgPtsNum, 6) =
-                    G_k(y_k, T_k);
-                W_R_inv.diagonal().segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
-                    R_k_inv(y_k).diagonal();
-                lastObservableImgPtsIdx += observableImgPtsNum;
-            }
-        }
-
-        e.segment(0, 6 * batchSize) = e_v;
-        e.segment(6 * batchSize, 4 * totalObservableImgPtsNum) = e_y;
-
-        W_inv.diagonal().segment(0, 6 * batchSize) = W_Q_inv.diagonal();
-        W_inv.diagonal().segment(6 * batchSize, 4 * totalObservableImgPtsNum) = W_R_inv.diagonal();
-
-        H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
-        H.block(6 * batchSize, 0, 4 * totalObservableImgPtsNum, 6 * batchSize) = H_G;
-
-        Eigen::MatrixXd A = H.transpose() * W_inv * H;
-        Eigen::MatrixXd b = H.transpose() * W_inv * e;
-
-        Eigen::VectorXd x = A.ldlt().solve(b);
-
-        std::ofstream debugLog("/home/zeming/Repos/SER_Assignments/ex04/catkin_ws/log.txt");
-
-        if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
-        debugLog << "iteration: " << i + 1 << std::endl;
-        debugLog << "observed img pts num: " << totalObservableImgPtsNum << std::endl;
-        debugLog << "e_v: \n" << e_v << std::endl;
-        debugLog << "e_y: \n" << e_y << std::endl;
-        debugLog << "e: \n" << e << std::endl;
-        debugLog << "W_Q_inv: \n" << W_Q_inv.toDenseMatrix() << std::endl;
-        debugLog << "W_R_inv: \n" << W_R_inv.toDenseMatrix() << std::endl;
-        debugLog << "W_inv: \n" << W_inv.toDenseMatrix() << std::endl;
-        debugLog << "H_F: \n" << H_F << std::endl;
-        debugLog << "H_G: \n" << H_G << std::endl;
-        debugLog << "H: \n" << H << std::endl;
-        debugLog << "A: \n" << A << std::endl;
-        debugLog << "b: \n" << b << std::endl;
-        debugLog << "x: \n" << x << std::endl;
-        debugLog.close();
-
-        double motionError = 0.5 * e_v.transpose() * W_Q_inv * e_v;
-        double measurementError = e_y.transpose() * e_y;
-
-        for (int k = 0; k < batchSize; k++) {
-            const auto optimizationValue = x.segment<6>(6 * k);
-
-            // ROS_INFO_STREAM("before update: \n"
-            //                 << estPoseArraySE3_[k]->rotationMatrix() << "\n"
-            //                 << estPoseArraySE3_[k]->inverse().translation());
-
-            *estPoseArraySE3_[k] = Sophus::SE3d::exp(optimizationValue) * *estPoseArraySE3_[k];
-
-        //     ROS_INFO_STREAM("after update: \n"
-        //                     << estPoseArraySE3_[k]->rotationMatrix() << "\n"
-        //                     << estPoseArraySE3_[k]->inverse().translation());
-        }
-
-        ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " << motionError
-                                               << "  measurement error: " << measurementError);
     }
 
-    // for (int i = 0; i < maxIterations; i++) {
-    //     Eigen::SparseMatrix<double> e(86 * batchSize, 1);
-    //     Eigen::SparseMatrix<double> e_v_i(6 * batchSize, 1);
-    //     Eigen::SparseMatrix<double> e_y_i(80 * batchSize, 1);
-
-    //     Eigen::SparseMatrix<double> H(86 * batchSize, 6 * batchSize);
-    //     Eigen::SparseMatrix<double> H_F(6 * batchSize, 6 * batchSize);
-    //     Eigen::SparseMatrix<double> H_G(80 * batchSize, 6 * batchSize);
-
-    //     Eigen::SparseMatrix<double> W_Q_inv(6 * batchSize, 6 * batchSize);
-    //     Eigen::SparseMatrix<double> W_R_inv(80 * batchSize, 80 * batchSize);
-    //     Eigen::SparseMatrix<double> W_inv(86 * batchSize, 86 * batchSize);
-
-    //     Eigen::SparseMatrix<double> Q_k_inv = Q_k().inverse().sparseView();
-    //     Eigen::SparseMatrix<double> R_k_inv = R_k().inverse().sparseView();
-
-    //     // make w
-    //     for (int k = 0; k < batchSize; k++) {
-    //         double delta_t = timeDiffArray[i];
-    //         if (k == 0) {
-    //             Eigen::MatrixXd W_Q_inv_begin(6, 6);
-    //             W_Q_inv_begin.setIdentity();
-    //             W_Q_inv_begin *= 1000;
-    //             insertSparseBlock(W_Q_inv, W_Q_inv_begin.sparseView(), 6 * k, 6 * k);
-    //             insertSparseBlock(W_R_inv, R_k_inv / (delta_t * delta_t), 80 * k, 80 * k);
-    //         } else {
-    //             insertSparseBlock(W_Q_inv, Q_k_inv / (delta_t * delta_t), 6 * k, 6 * k);
-    //             insertSparseBlock(W_R_inv, R_k_inv / (delta_t * delta_t), 80 * k, 80 * k);
-    //         }
-    //     }
-    //     insertSparseBlock(W_inv, W_Q_inv, 0, 0);
-    //     insertSparseBlock(W_inv, W_R_inv, 6 * batchSize, 6 * batchSize);
-
-    //     // make e
-    //     for (int k = 0; k < batchSize; k++) {
-    //         const auto& T_vk_i = *estPoseArraySE3_[k];
-    //         const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
-
-    //         if (k == 0) {
-    //             insertSparseBlock(e_v_i, Eigen::Matrix<double, 6, 1>::Zero().sparseView(), 0,
-    //             0); insertSparseBlock(e_y_i, Eigen::Matrix<double, 80,
-    //             1>::Zero().sparseView(), 0, 0); insertSparseBlock(H_F,
-    //             Sophus::Matrix6d::Identity().sparseView(), 0, 0); insertSparseBlock(H_G,
-    //             G_k(y_k, T_vk_i).sparseView(), 0, 0);
-
-    //         } else {
-    //             const auto& T_vk_i_1 = *deadReckoningPoseArraySE3_[k - 1];
-    //             const auto& ksaiUpper_k = *incrementalPoseArraySE3_[k];
-
-    //             insertSparseBlock(e_v_i, error_op_vk(ksaiUpper_k, T_vk_i_1,
-    //             T_vk_i).sparseView(),
-    //                               6 * k, 0);
-    //             insertSparseBlock(e_y_i, error_op_y_k(y_k, T_vk_i).sparseView(), 80 * k, 0);
-    //             insertSparseBlock(H_F, F_k_1(T_vk_i_1, T_vk_i).sparseView(), 6 * k, 6 * (k -
-    //             1)); insertSparseBlock(H_F, Sophus::Matrix6d::Identity().sparseView(), 6 * k,
-    //             6 * k); insertSparseBlock(H_G, G_k(y_k, T_vk_i).sparseView(), 80 * k, 6 * k);
-    //         }
-    //     }
-    //     insertSparseBlock(e, e_v_i, 0, 0);
-    //     insertSparseBlock(e, e_y_i, 6 * batchSize, 0);
-    //     insertSparseBlock(H, H_F, 0, 0);
-    //     insertSparseBlock(H, H_G, 6 * batchSize, 0);
-
-    //     Eigen::SparseMatrix<double> A = H.transpose() * W_inv * H;
-    //     Eigen::SparseMatrix<double> b = H.transpose() * W_inv * e;
-
-    //     Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
-    //     solver.analyzePattern(A);
-    //     solver.factorize(A);
-    //     solver.compute(A);
-    //     Eigen::VectorXd x = solver.solve(b);
-
-    //     for (int k = 0; k < batchSize; k++) {
-    //         Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * k));
-    //         *estPoseArraySE3_[k] = T_k_star * (*estPoseArraySE3_[k]);
-    //     }
-
-    //     Eigen::MatrixXd motionError = 1 / 2 * e_v_i.transpose() * W_Q_inv * e_v_i;
-    //     Eigen::MatrixXd measurementError = 1 / 2 * e_y_i.transpose() * W_R_inv * e_y_i;
-
-    //     ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " <<
-    //     motionError.norm()
-    //                                            << "  measurement error: "
-    //                                            << measurementError.norm());
-    // }
-
-    // // build H
-    // Eigen::MatrixXd H;
-    // H << H_F, H_G;
-
-    // // build W
-    // int rows = W_Q.rows() + W_R.rows();
-    // int cols = W_Q.cols() + W_R.cols();
-    // Eigen::MatrixXd W = Eigen::MatrixXd::Zero(rows, cols);
-    // W.topLeftCorner(W_Q.rows(), W_Q.cols()) = W_Q;
-    // W.bottomRightCorner(W_R.rows(), W_R.cols()) = W_R;
-
-    // const auto& A = H.transpose() * W.inverse() * H;
-    // const auto& b = H.transpose() * W.inverse() * e_op;
-
-    // ROS_INFO_STREAM("e_op: \n" << e_op);
-    // ROS_INFO_STREAM("H: \n" << H);
-    // ROS_INFO_STREAM("W: \n" << W);
-
-    // Eigen::SparseQR<Eigen::SparseMatrix<double>, Eigen::COLAMDOrdering<int> > qr;
-    // qr.compute(A.sparseView());
-    // const auto& x = qr.solve(b);
-
-    // for (int i = 0; i < batchSize; i++) {
-    //     Sophus::SE3d T_k_star = Sophus::SE3d::exp(x.segment<6>(6 * i));
-    //     *estPoseArraySE3_[i] = T_k_star * (*estPoseArraySE3_[i]);
-    // }
-
-    // double T_log_array [6 * deadReckoningPoseArraySE3_.size()];
-    // for (int i = 0; i < deadReckoningPoseArraySE3_.size(); i++)
-    //     for (int j = 0; j < 6; j++)
-    //         T_log_array[6 * i + j] = deadReckoningPoseArraySE3_[i]->log()[j];
-
-    // ceres::Problem problem;
-    // static const Sophus::Matrix6d Q = Q_k();
-    // static const Eigen::Matrix<double, 80, 80> R = R_k();
-
-    // ceres::CostFunction* cost_function =
-    //     new ceres::AutoDiffCostFunction<ObjectiveFunction, Utils::batchSize, 6 *
-    //     Utils::batchSize>(
-    //         new ObjectiveFunction(Utils::batchSize, incrementalPoseArraySE3_, imgPtsArray_,
-    //         Q, R));
-    // problem.AddResidualBlock(cost_function, nullptr, T_log_array);
-
-    // ceres::Solver::Options options;
-    // options.linear_solver_type = ceres::DENSE_QR;
-    // options.minimizer_type = ceres::TRUST_REGION;
-    // options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
-    // options.use_nonmonotonic_steps = true;
-    // options.max_num_iterations = 100;
-    // options.minimizer_progress_to_stdout = true;
-
-    // ceres::Solver::Summary summary;
-    // ceres::Solve(options, &problem, &summary);
-
-    // ROS_INFO_STREAM(summary.BriefReport() << "\n");
-
-    // for (int i = 1; i < deadReckoningPoseArraySE3_.size(); i++) {
-    //     const auto& ksaiUpper_k = *deadReckoningPoseArraySE3_[i];
-    //     const auto& T_vk_1_i = *estPoseArraySE3_[i - 1];
-    //     const auto& y_k = imgPtsArray_[stateBegin_ + i]->pts;
-
-    //     ceres::CostFunction* cost_function =
-    //         new ceres::AutoDiffCostFunction<ObjectiveFunction, 86, 6>(
-    //             new ObjectiveFunction(ksaiUpper_k, T_vk_1_i, y_k, Q, R));
-    //     problem.AddResidualBlock(cost_function, nullptr, T_log_array + 6 * i);
-    // }
-
-    // ceres::Solver::Options options;
-    // options.linear_solver_type = ceres::DENSE_QR;
-    // options.minimizer_type = ceres::TRUST_REGION;
-    // options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
-    // options.use_nonmonotonic_steps = true;
-    // options.max_num_iterations = 100;
-    // options.minimizer_progress_to_stdout = true;
-
-    // ceres::Solver::Summary summary;
-    // ceres::Solve(options, &problem, &summary);
-
-    // ROS_INFO_STREAM(summary.BriefReport() << "\n");
-
+    delete[] estPoseArray;
     estimatorFlag_ = false;
     vizFlag_ = true;
 }
+
+// void Estimator::run() {
+//     if (estimatorFlag_ == false || gtPoseArray_.size() != imuArray_.size() ||
+//         gtPoseArray_.size() != imgPtsArray_.size() || gtPoseArray_.size() < stateEnd_ + 1)
+//         return;
+
+//     // Estimator implementation
+//     const auto gt_pose_begin = gtPoseArray_[stateBegin_];
+//     auto&& T_vk_begin_i = poseVecToSE3Pose(gt_pose_begin->theta, gt_pose_begin->r);
+//     incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
+//     deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+//     estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+
+//     for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
+//         double delta_t = imuArray_[i]->t - imuArray_[i - 1]->t;
+//         const Imu::Ptr lastImu = imuArray_[i - 1];
+//         const auto& T_k_1 = *deadReckonPoseArraySE3_.back();
+//         const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, lastImu);
+//         const auto& T_k = motionModel(delta_t, lastImu, T_k_1);
+
+//         incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
+//         deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
+//         estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
+//     }
+
+//     for (const auto T_k : deadReckonPoseArraySE3_) {
+//         const auto& imgPts = observationModel(*T_k);
+//         deadReckonImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
+//     }
+
+//     // FIXME:
+//     int batchSize = stateEnd_ - stateBegin_ + 1;
+
+//     std::vector<u_int16_t> observableImgPtsNumArray;
+//     int totalObservableImgPtsNum = 0;
+//     for (int k = 0; k < batchSize; k++) {
+//         const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+//         observableImgPtsNumArray.push_back(countObservableImgPtsIdx(y_k).size());
+//         totalObservableImgPtsNum += observableImgPtsNumArray[k];
+//     }
+
+//     for (int i = 0; i < maxIterations_; i++) {
+//         Eigen::VectorXd e = Eigen::VectorXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum);
+//         Eigen::VectorXd e_v = Eigen::VectorXd::Zero(6 * batchSize);
+//         Eigen::VectorXd e_y = Eigen::VectorXd::Zero(4 * totalObservableImgPtsNum);
+//         Eigen::MatrixXd H =
+//             Eigen::MatrixXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum, 6 * batchSize);
+//         Eigen::MatrixXd H_F = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
+//         Eigen::MatrixXd H_G = Eigen::MatrixXd::Zero(4 * totalObservableImgPtsNum, 6 * batchSize);
+//         Eigen::DiagonalMatrix<double, -1> W_Q_inv(6 * batchSize);
+//         Eigen::DiagonalMatrix<double, -1> W_R_inv(4 * totalObservableImgPtsNum);
+//         Eigen::DiagonalMatrix<double, -1> W_inv(6 * batchSize + 4 * totalObservableImgPtsNum);
+//         int lastObservableImgPtsIdx = 0;
+//         for (int k = 0; k < batchSize; k++) {
+//             if (k == 0) {
+//                 const auto& T_k = *estPoseArraySE3_[k];
+//                 const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+
+//                 e_v.segment<6>(6 * k) = Eigen::VectorXd::Zero(6);
+//                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
+//                 W_Q_inv.diagonal().segment<6>(6 * k) =
+//                     100.0 * Eigen::MatrixXd::Identity(6, 6).diagonal();
+
+//                 int observableImgPtsNum = observableImgPtsNumArray[k];
+//                 e_y.segment(0, 4 * observableImgPtsNum) = computeObservationError(y_k, T_k);
+//                 H_G.block(0, 0, 4 * observableImgPtsNum, 6) = G_k(y_k, T_k);
+//                 W_R_inv.diagonal().segment(0, 4 * observableImgPtsNum) = R_k_inv(y_k).diagonal();
+//                 lastObservableImgPtsIdx += observableImgPtsNum;
+//             } else {
+//                 double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ -
+//                 1]->t; auto ksaiUpper_k = *incrementalPoseArraySE3_[k]; auto T_k =
+//                 *estPoseArraySE3_[k]; auto T_k_1 = *estPoseArraySE3_[k - 1]; auto y_k =
+//                 imgPtsArray_[k + stateBegin_]->pts;
+
+//                 e_v.segment<6>(6 * k) = computeMotionError(ksaiUpper_k, T_k_1, T_k);
+//                 H_F.block<6, 6>(6 * k, 6 * (k - 1)) = -F_k_1(T_k, T_k_1);
+//                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
+//                 W_Q_inv.diagonal().segment<6>(6 * k) = Q_k_inv(delta_t).diagonal();
+
+//                 int observableImgPtsNum = observableImgPtsNumArray[k];
+//                 e_y.segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
+//                     computeObservationError(y_k, T_k);
+//                 H_G.block(4 * lastObservableImgPtsIdx, 6 * k, 4 * observableImgPtsNum, 6) =
+//                     G_k(y_k, T_k);
+//                 W_R_inv.diagonal().segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum)
+//                 =
+//                     R_k_inv(y_k).diagonal();
+//                 lastObservableImgPtsIdx += observableImgPtsNum;
+//             }
+//         }
+
+//         e.segment(0, 6 * batchSize) = e_v;
+//         e.segment(6 * batchSize, 4 * totalObservableImgPtsNum) = e_y;
+
+//         W_inv.diagonal().segment(0, 6 * batchSize) = W_Q_inv.diagonal();
+//         W_inv.diagonal().segment(6 * batchSize, 4 * totalObservableImgPtsNum) =
+//         W_R_inv.diagonal();
+
+//         H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
+//         H.block(6 * batchSize, 0, 4 * totalObservableImgPtsNum, 6 * batchSize) = H_G;
+
+//         Eigen::MatrixXd A = H.transpose() * W_inv * H;
+//         Eigen::MatrixXd b = H.transpose() * W_inv * e;
+
+//         Eigen::VectorXd x = A.ldlt().solve(b);
+
+//         std::ofstream debugLog("/home/zeming/Repos/SER_Assignments/ex04/catkin_ws/log.txt");
+
+//         if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
+//         debugLog << "iteration: " << i + 1 << std::endl;
+//         debugLog << "observed img pts num: " << totalObservableImgPtsNum << std::endl;
+//         debugLog << "e_v: \n" << e_v << std::endl;
+//         debugLog << "e_y: \n" << e_y << std::endl;
+//         debugLog << "e: \n" << e << std::endl;
+//         debugLog << "W_Q_inv: \n" << W_Q_inv.toDenseMatrix() << std::endl;
+//         debugLog << "W_R_inv: \n" << W_R_inv.toDenseMatrix() << std::endl;
+//         debugLog << "W_inv: \n" << W_inv.toDenseMatrix() << std::endl;
+//         debugLog << "H_F: \n" << H_F << std::endl;
+//         debugLog << "H_G: \n" << H_G << std::endl;
+//         debugLog << "H: \n" << H << std::endl;
+//         debugLog << "A: \n" << A << std::endl;
+//         debugLog << "b: \n" << b << std::endl;
+//         debugLog << "x: \n" << x << std::endl;
+//         debugLog.close();
+
+//         double motionError = 0.5 * e_v.transpose() * W_Q_inv * e_v;
+//         double measurementError = e_y.transpose() * e_y;
+
+//         for (int k = 0; k < batchSize; k++) {
+//             const auto optimizationValue = x.segment<6>(6 * k);
+
+//             // ROS_INFO_STREAM("before update: \n"
+//             //                 << estPoseArraySE3_[k]->rotationMatrix() << "\n"
+//             //                 << estPoseArraySE3_[k]->inverse().translation());
+
+//             *estPoseArraySE3_[k] = Sophus::SE3d::exp(optimizationValue) * *estPoseArraySE3_[k];
+
+//         //     ROS_INFO_STREAM("after update: \n"
+//         //                     << estPoseArraySE3_[k]->rotationMatrix() << "\n"
+//         //                     << estPoseArraySE3_[k]->inverse().translation());
+//         }
+
+//         ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " << motionError
+//                                                << "  measurement error: " << measurementError);
+//     }
+
+//     estimatorFlag_ = false;
+//     vizFlag_ = true;
+// }
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "estimator");
