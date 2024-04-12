@@ -1,6 +1,6 @@
 vizSpeed: 0.5
 stateBegin: 1214 # 1215 - 1
-stateEnd: 1318 # 1714 - 1
+stateEnd: 1713 # 1714 - 1
 slidingWindowSize: 50
 maxIterations: 100
 minIterations: 1

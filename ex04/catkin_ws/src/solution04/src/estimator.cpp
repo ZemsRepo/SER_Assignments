@@ -278,6 +278,21 @@ Eigen::DiagonalMatrix<double, 6> Estimator::Q_k_inv(double delta_t) {
     return Q_k_inv;
 }
 
+Eigen::DiagonalMatrix<double, 6> Estimator::motionNoiseSigma(double delta_t) {
+    Eigen::DiagonalMatrix<double, 6> motionNoiseSigmaInv;
+    motionNoiseSigmaInv.diagonal().segment<3>(0) = v_var_.array().sqrt() * delta_t;
+    motionNoiseSigmaInv.diagonal().segment<3>(3) = w_var_.array().sqrt() * delta_t;
+    return motionNoiseSigmaInv;
+}
+
+Eigen::DiagonalMatrix<double, -1> Estimator::observationNoiseSigma(int numObservations) {
+    Eigen::DiagonalMatrix<double, -1> observationNoiseSigma(numObservations * 4);
+    for (int i = 0; i < numObservations; i++) {
+        observationNoiseSigma.diagonal().segment<4>(i * 4) = y_var_.array().sqrt();
+    }
+    return observationNoiseSigma;
+}
+
 Eigen::DiagonalMatrix<double, 4> Estimator::R_jk_inv() {
     return y_var_.cwiseInverse().asDiagonal();
 }
@@ -312,6 +327,31 @@ Eigen::Matrix<double, 4, 6> Estimator::G_jk(const Sophus::SE3d& T_k,
     Z_jk.block<1, 6>(3, 0) = Eigen::Matrix<double, 1, 6>::Zero();
 
     return S_jk * Z_jk;
+}
+
+Eigen::Matrix<double, -1, 3> Estimator::countObservableLandmarks(
+    const Eigen::Matrix<double, 20, 4>& y_k) {
+    const std::vector<u_int16_t>& observableImgPtsIdxArray = countObservableImgPtsIdx(y_k);
+    uint16_t observableImgPtsNum = observableImgPtsIdxArray.size();
+    Eigen::Matrix<double, -1, 3> observableLandmarks(observableImgPtsNum, 3);
+    int counter = 0;
+    for (const auto idx : observableImgPtsIdxArray) {
+        observableLandmarks.row(counter) = worldFrameLandmarks_.row(idx);
+        counter++;
+    }
+    return observableLandmarks;
+}
+
+Eigen::VectorXd Estimator::countObservableImgPts(const Eigen::Matrix<double, 20, 4>& y_k) {
+    const std::vector<u_int16_t>& observableImgPtsIdxArray = countObservableImgPtsIdx(y_k);
+    uint16_t observableImgPtsNum = observableImgPtsIdxArray.size();
+    Eigen::VectorXd observableImgPts(observableImgPtsNum * 4);
+    int counter = 0;
+    for (const auto idx : observableImgPtsIdxArray) {
+        observableImgPts.segment<4>(counter * 4) = y_k.row(idx);
+        counter++;
+    }
+    return observableImgPts;
 }
 
 Eigen::Matrix<double, -1, 6> Estimator::G_k(const Eigen::Matrix<double, 20, 4>& y_k,
@@ -424,8 +464,17 @@ void Estimator::run() {
         return;
 
     // Estimator implementation
+    std::vector<double> delta_t_array;
+    std::vector<Eigen::Matrix<double, -1, 3>> observableLandmarksArray;
+    std::vector<Eigen::VectorXd> observableImgPtsArray;
+
     const auto gt_pose_begin = gtPoseArray_[stateBegin_];
     auto&& T_vk_begin_i = poseVecToSE3Pose(gt_pose_begin->theta, gt_pose_begin->r);
+    const auto& thisImgPts = imgPtsArray_[stateBegin_]->pts;
+
+    delta_t_array.push_back(0.0);
+    observableLandmarksArray.push_back(countObservableLandmarks(thisImgPts));
+    observableImgPtsArray.push_back(countObservableImgPts(thisImgPts));
     incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
     deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
     estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
@@ -436,7 +485,11 @@ void Estimator::run() {
         const auto& T_k_1 = *deadReckonPoseArraySE3_.back();
         const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, lastImu);
         const auto& T_k = motionModel(delta_t, lastImu, T_k_1);
+        const auto& thisImgPts = imgPtsArray_[i]->pts;
 
+        delta_t_array.push_back(delta_t);
+        observableLandmarksArray.push_back(countObservableLandmarks(thisImgPts));
+        observableImgPtsArray.push_back(countObservableImgPts(thisImgPts));
         incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
         deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
         estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
@@ -463,11 +516,48 @@ void Estimator::run() {
     }
 
     ceres::Problem problem;
-    for (int i = 0; i < batchSize; i++) {
+    auto SE3 =
+        new ceres::ProductManifold<ceres::EigenQuaternionManifold, ceres::EuclideanManifold<3>>;
 
+    for (int i = 0; i < batchSize; i++) {
+        if (i == 0) continue;
+
+        double* thisPosePtr = estPoseArray + 7 * i;
+        double* lastPosePtr = estPoseArray + 7 * (i - 1);
+
+        auto motionErrorCostFunctor = std::make_unique<MotionErrorCostFunctor>(
+            *incrementalPoseArraySE3_[i], motionNoiseSigma(delta_t_array[i]).inverse());
+        ceres::CostFunction* motionErrorCostFunction =
+            new ceres::AutoDiffCostFunction<MotionErrorCostFunctor, 6, 7, 7>(
+                std::move(motionErrorCostFunctor));
+        problem.AddResidualBlock(motionErrorCostFunction, nullptr, thisPosePtr, lastPosePtr);
+        problem.SetManifold(thisPosePtr, SE3);
+        problem.SetManifold(lastPosePtr, SE3);
+
+        int observableImgPtsNum = observableImgPtsArray[i].size() / 4;
+        if (observableImgPtsNum == 0) continue;
+
+        static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
+        auto observationErrorCostFunctor = std::make_unique<ObservationErrorCostFunctor>(
+            observableImgPtsArray[i], observableLandmarksArray[i],
+            observationNoiseSigma(observableImgPtsNum).inverse(), T_c_v, fu_, fv_, cu_, cv_, b_);
+
+        ceres::CostFunction* observationErrorCostFunction =
+            new ceres::AutoDiffCostFunction<ObservationErrorCostFunctor, ceres::DYNAMIC, 7>(
+                std::move(observationErrorCostFunctor), observableImgPtsNum * 4);
+        problem.AddResidualBlock(observationErrorCostFunction, nullptr, thisPosePtr);
+        problem.SetManifold(thisPosePtr, SE3);
     }
 
-    delete[] estPoseArray;
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::SPARSE_SCHUR;
+    options.minimizer_progress_to_stdout = true;
+    options.num_threads = 4;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+
+    std::cout << summary.BriefReport() << "\n";
+
     estimatorFlag_ = false;
     vizFlag_ = true;
 }

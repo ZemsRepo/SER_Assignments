@@ -1,6 +1,7 @@
 #ifndef SOLUTION04_INCLUDE_ESTIMATOR_H
 #define SOLUTION04_INCLUDE_ESTIMATOR_H
 
+#include "costFunctors.h"
 #include "paramServer.h"
 #include "utils.h"
 
@@ -14,7 +15,7 @@ class Estimator : ParamServer {
     ~Estimator();
     void run();
     void visualize();
-    
+
    private:
     void imuCallBack(const solution04::MyImu::ConstPtr& msg);
     void imgPtsCallBack(const solution04::ImgPts::ConstPtr& msg);
@@ -65,9 +66,13 @@ class Estimator : ParamServer {
 
     Eigen::DiagonalMatrix<double, 6> Q_k_inv(double delta_t);
 
+    Eigen::DiagonalMatrix<double, 6> motionNoiseSigma(double delta_t);
+
     Eigen::DiagonalMatrix<double, 4> R_jk_inv();
 
     Eigen::DiagonalMatrix<double, -1> R_k_inv(const Eigen::Matrix<double, 20, 4>& y_k);
+
+    Eigen::DiagonalMatrix<double, -1> observationNoiseSigma(int numObservations);
 
     Eigen::Matrix<double, 4, 6> G_jk(const Sophus::SE3d& T_k,
                                      const Eigen::Vector3d& worldFrameLandmark);
@@ -78,6 +83,10 @@ class Estimator : ParamServer {
     bool thisImgPtIsObservable(const Eigen::Vector4d& imgPt);
 
     std::vector<uint16_t> countObservableImgPtsIdx(const Eigen::Matrix<double, 20, 4>& imgPts);
+
+    Eigen::Matrix<double, -1, 3> countObservableLandmarks(const Eigen::Matrix<double, 20, 4>& y_k);
+
+    Eigen::VectorXd countObservableImgPts(const Eigen::Matrix<double, 20, 4>& y_k);
 
     void insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
                            const Eigen::SparseMatrix<double>& block, int startRow, int startCol);
