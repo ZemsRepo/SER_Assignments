@@ -15,7 +15,7 @@ Estimator::Estimator() : ParamServer() {
         nh_.advertise<visualization_msgs::MarkerArray>("/gt_point_cloud_world_markers", 2);
 
     estTrajPub_ = nh_.advertise<nav_msgs::Path>("/est_trajectory", 2);
-    deadReckoningTrajPub_ = nh_.advertise<nav_msgs::Path>("/dead_reckoning_trajectory", 2);
+    deadReckonTrajPub_ = nh_.advertise<nav_msgs::Path>("/dead_reckoning_trajectory", 2);
     gtTrajPub_ = nh_.advertise<nav_msgs::Path>("/gt_trajectory", 2);
 
     imgPubLeft_ = nh_.advertise<sensor_msgs::Image>("/img_left", 2);
@@ -34,6 +34,7 @@ Estimator::~Estimator() {
     for (auto poseSE3 : deadReckonPoseArraySE3_) delete poseSE3;
     for (auto poseSE3 : estPoseArraySE3_) delete poseSE3;
     for (auto imgPts : deadReckonImgPtsArray_) delete imgPts;
+    for (auto imgPts : estImgPtsArray_) delete imgPts;
 };
 
 void Estimator::imuCallBack(const solution04::MyImu::ConstPtr& msg) {
@@ -109,7 +110,6 @@ Eigen::Vector3d Estimator::rotMatToRotVec(const Eigen::Matrix3d& C) {
 
 Sophus::SE3d Estimator::poseVecToSE3Pose(const Eigen::Vector3d& theta, const Eigen::Vector3d& r) {
     Eigen::Matrix3d&& C = rotVecToRotMat(theta);
-    // Sophus::SO3d&& sophus_C = Sophus::SO3d::exp(theta); // sophus_C equals C.inverse()
     return Sophus::SE3d(C, -C * r);
 }
 
@@ -131,19 +131,6 @@ void Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
     C_vk_i = rotVecToRotMat(psi) * C_vk_1_i;
     r_i_vk_i = r_i_vk_1_i + C_vk_1_i.transpose() * d;
 }
-
-// Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
-//                                     const Sophus::SE3d& T_vk_1_i) {
-//     const auto& w = imu->w;
-//     const auto& v = imu->v;
-//     const auto& d = v * delta_t;
-//     const auto& psi = w * delta_t;
-
-//     const auto& C_vk_i = rotVecToRotMat(psi) * T_vk_1_i.rotationMatrix();
-//     const auto& r_i_vk_i =
-//         T_vk_1_i.inverse().translation() + T_vk_1_i.rotationMatrix().transpose() * d;
-//     return Sophus::SE3d(C_vk_i, -C_vk_i * r_i_vk_i);
-// }
 
 Sophus::SE3d Estimator::motionModel(const double& delta_t, const Imu::Ptr imu,
                                     const Sophus::SE3d& T_k_1) {
@@ -405,11 +392,16 @@ void Estimator::visualize() {
             const auto thisImgPts = imgPtsArray_[stateBegin_ + vizFrame_];
             const auto thisGtPose = gtPoseArray_[stateBegin_ + vizFrame_];
 
-            const auto thisDeadReckoningPose = deadReckonPoseArraySE3_[vizFrame_];
-            const auto C = thisDeadReckoningPose->rotationMatrix();
-            const auto r = thisDeadReckoningPose->inverse().translation();
-
+            const auto thisDeadReckonPose = deadReckonPoseArraySE3_[vizFrame_];
             const auto thisDeadReckoningImgPts = deadReckonImgPtsArray_[vizFrame_];
+            const auto thisEstPose = estPoseArraySE3_[vizFrame_];
+            const auto thisEstImgPts = estImgPtsArray_[vizFrame_];
+
+            const auto C_dr = thisDeadReckonPose->rotationMatrix();
+            const auto r_dr = thisDeadReckonPose->inverse().translation();
+
+            const auto C_est = thisEstPose->rotationMatrix();
+            const auto r_est = thisEstPose->inverse().translation();
 
             ros::Time timeImu(thisImu->t);
             ros::Time timeImgPts(thisImgPts->t);
@@ -423,13 +415,17 @@ void Estimator::visualize() {
             // publish
             Utils::broadcastWorld2VehTF(br_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose, "vehicle");
 
-            Utils::broadcastWorld2VehTF(br_, C, r, timeGtPose, "vehicle_dead_reckoning");
+            Utils::broadcastWorld2VehTF(br_, C_dr, r_dr, timeGtPose, "vehicle_dead_reckon");
+
+            Utils::broadcastWorld2VehTF(br_, C_est, r_est, timeGtPose, "vehicle_est");
 
             Utils::broadcastStaticVeh2CamTF(staticBr_, C_c_v_, rho_v_c_v_, timeGtPose);
 
             Utils::publish_trajectory(gtTrajPub_, gtTraj_, C_vk_i_gt, r_i_vk_i_gt, timeGtPose);
 
-            Utils::publish_trajectory(deadReckoningTrajPub_, deadReckoningTraj_, C, r, timeGtPose);
+            Utils::publish_trajectory(deadReckonTrajPub_, deadReckonTraj_, C_dr, r_dr, timeGtPose);
+
+            Utils::publish_trajectory(estTrajPub_, estTraj_, C_est, r_est, timeGtPose);
 
             Utils::publishPointCloud(gtPclWorldPub_, worldFrameLandmarks_, timeGtPose, "world");
 
@@ -440,13 +436,12 @@ void Estimator::visualize() {
                                      thisImgPts->pts.block(0, 2, 20, 2), timeGtPose, "camera");
 
             Utils::publishImage(imgPubLeft_, thisImgPts->pts.block(0, 0, 20, 2),
-                                cv::Scalar(0, 0, 164), thisDeadReckoningImgPts->block(0, 0, 20, 2),
+                                cv::Scalar(0, 0, 164), thisEstImgPts->block(0, 0, 20, 2),
                                 cv::Scalar(0, 255, 0), timeImgPts, "camera");
 
             Utils::publishImage(imgPubRight_, thisImgPts->pts.block(0, 2, 20, 2),
-                                cv::Scalar(135, 74, 32),
-                                thisDeadReckoningImgPts->block(0, 2, 20, 2), cv::Scalar(0, 255, 0),
-                                timeImgPts, "camera");
+                                cv::Scalar(135, 74, 32), thisEstImgPts->block(0, 2, 20, 2),
+                                cv::Scalar(0, 255, 0), timeImgPts, "camera");
 
             Utils::publishMarkerArray(gtPclWorldMarkerPub_, worldFrameLandmarks_, timeGtPose,
                                       "world");
@@ -458,7 +453,7 @@ void Estimator::visualize() {
     }
 }
 
-void Estimator::run() {
+void Estimator::runWithCeresSolver() {
     if (estimatorFlag_ == false || gtPoseArray_.size() != imuArray_.size() ||
         gtPoseArray_.size() != imgPtsArray_.size() || gtPoseArray_.size() < stateEnd_ + 1)
         return;
@@ -495,221 +490,244 @@ void Estimator::run() {
         estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
     }
 
-    for (const auto T_k : deadReckonPoseArraySE3_) {
-        const auto& imgPts = observationModel(*T_k);
-        deadReckonImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
-    }
+    int numStatesToProcess = stateEnd_ - stateBegin_ + 1;
+    int batchSize = useSlidingWindow_ ? slidingWindowSize_ : numStatesToProcess;
+    int slidingWindowStart = stateBegin_;
 
-    // FIXME:
-    int batchSize = stateEnd_ - stateBegin_ + 1;
-
-    double* estPoseArray = new double[7 * batchSize];
-    for (int i = 0; i < batchSize; i++) {
+    double* estPoseArray = new double[7 * numStatesToProcess];
+    for (int i = 0; i < numStatesToProcess; i++) {
         const auto T_k = estPoseArraySE3_[i];
-        estPoseArray[7 * i] = T_k->unit_quaternion().x();
-        estPoseArray[7 * i + 1] = T_k->unit_quaternion().y();
-        estPoseArray[7 * i + 2] = T_k->unit_quaternion().z();
-        estPoseArray[7 * i + 3] = T_k->unit_quaternion().w();
+        estPoseArray[7 * i + 0] = T_k->unit_quaternion().w();
+        estPoseArray[7 * i + 1] = T_k->unit_quaternion().x();
+        estPoseArray[7 * i + 2] = T_k->unit_quaternion().y();
+        estPoseArray[7 * i + 3] = T_k->unit_quaternion().z();
         estPoseArray[7 * i + 4] = T_k->translation().x();
         estPoseArray[7 * i + 5] = T_k->translation().y();
         estPoseArray[7 * i + 6] = T_k->translation().z();
     }
 
-    ceres::Problem problem;
-    auto SE3 =
-        new ceres::ProductManifold<ceres::EigenQuaternionManifold, ceres::EuclideanManifold<3>>;
+    for (;;) {
+        if (slidingWindowStart + batchSize - 1 > stateEnd_) break;
 
-    for (int i = 0; i < batchSize; i++) {
-        if (i == 0) continue;
+        ceres::Problem problem;
+        auto SE3 =
+            new ceres::ProductManifold<ceres::EigenQuaternionManifold, ceres::EuclideanManifold<3>>;
 
-        double* thisPosePtr = estPoseArray + 7 * i;
-        double* lastPosePtr = estPoseArray + 7 * (i - 1);
+        for (int i = 0; i < batchSize; i++) {
+            int thisPoseAbsIdx = slidingWindowStart + i;
+            int thisPoseRelIdx = thisPoseAbsIdx - stateBegin_;
 
-        auto motionErrorCostFunctor = std::make_unique<MotionErrorCostFunctor>(
-            *incrementalPoseArraySE3_[i], motionNoiseSigma(delta_t_array[i]).inverse());
-        ceres::CostFunction* motionErrorCostFunction =
-            new ceres::AutoDiffCostFunction<MotionErrorCostFunctor, 6, 7, 7>(
-                std::move(motionErrorCostFunctor));
-        problem.AddResidualBlock(motionErrorCostFunction, nullptr, thisPosePtr, lastPosePtr);
-        problem.SetManifold(thisPosePtr, SE3);
-        problem.SetManifold(lastPosePtr, SE3);
+            double* thisPosePtr = estPoseArray + 7 * thisPoseRelIdx;
+            double* lastPosePtr = estPoseArray + 7 * (thisPoseRelIdx - 1);
+            int observableImgPtsNum = observableImgPtsArray[thisPoseRelIdx].size() / 4;
 
-        int observableImgPtsNum = observableImgPtsArray[i].size() / 4;
-        if (observableImgPtsNum == 0) continue;
+            if (thisPoseAbsIdx > stateBegin_) {
+                auto motionErrorCostFunctor = std::make_unique<MotionErrorCostFunctor>(
+                    *incrementalPoseArraySE3_[thisPoseRelIdx],
+                    motionNoiseSigma(delta_t_array[thisPoseRelIdx]).inverse());
+                ceres::CostFunction* motionErrorCostFunction =
+                    new ceres::AutoDiffCostFunction<MotionErrorCostFunctor, 6, 7, 7>(
+                        std::move(motionErrorCostFunctor));
+                problem.AddResidualBlock(motionErrorCostFunction, nullptr, thisPosePtr,
+                                         lastPosePtr);
+                if (thisPoseAbsIdx == stateBegin_ + 1)
+                    problem.SetParameterBlockConstant(lastPosePtr);
+                problem.SetManifold(thisPosePtr, SE3);
+                problem.SetManifold(lastPosePtr, SE3);
+            }
 
-        static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
-        auto observationErrorCostFunctor = std::make_unique<ObservationErrorCostFunctor>(
-            observableImgPtsArray[i], observableLandmarksArray[i],
-            observationNoiseSigma(observableImgPtsNum).inverse(), T_c_v, fu_, fv_, cu_, cv_, b_);
+            if (observableImgPtsNum > 0) {
+                static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
+                auto observationErrorCostFunctor = std::make_unique<ObservationErrorCostFunctor>(
+                    observableImgPtsArray[thisPoseRelIdx], observableLandmarksArray[thisPoseRelIdx],
+                    observationNoiseSigma(observableImgPtsNum).inverse(), T_c_v, fu_, fv_, cu_, cv_,
+                    b_);
 
-        ceres::CostFunction* observationErrorCostFunction =
-            new ceres::AutoDiffCostFunction<ObservationErrorCostFunctor, ceres::DYNAMIC, 7>(
-                std::move(observationErrorCostFunctor), observableImgPtsNum * 4);
-        problem.AddResidualBlock(observationErrorCostFunction, nullptr, thisPosePtr);
-        problem.SetManifold(thisPosePtr, SE3);
+                ceres::CostFunction* observationErrorCostFunction =
+                    new ceres::AutoDiffCostFunction<ObservationErrorCostFunctor, ceres::DYNAMIC, 7>(
+                        std::move(observationErrorCostFunctor), observableImgPtsNum * 4);
+                problem.AddResidualBlock(observationErrorCostFunction, nullptr, thisPosePtr);
+                problem.SetManifold(thisPosePtr, SE3);
+            }
+        }
+
+        ceres::Solver::Options options;
+        options.linear_solver_type = ceres::SPARSE_SCHUR;
+        options.minimizer_progress_to_stdout = true;
+        options.num_threads = numThreads_;
+        ceres::Solver::Summary summary;
+        ceres::Solve(options, &problem, &summary);
+
+        ROS_INFO_STREAM("Sliding window: " << slidingWindowStart << " - "
+                                           << slidingWindowStart + batchSize - 1
+                                           << "  Times: " << slidingWindowStart - stateBegin_ + 1);
+        slidingWindowStart++;
     }
 
-    ceres::Solver::Options options;
-    options.linear_solver_type = ceres::SPARSE_SCHUR;
-    options.minimizer_progress_to_stdout = true;
-    options.num_threads = 4;
-    ceres::Solver::Summary summary;
-    ceres::Solve(options, &problem, &summary);
+    for (int i = 0; i < numStatesToProcess; i++) {
+        const Eigen::Quaterniond q_k(estPoseArray[7 * i + 0], estPoseArray[7 * i + 1],
+                                     estPoseArray[7 * i + 2], estPoseArray[7 * i + 3]);
+        const Eigen::Vector3d t_k(estPoseArray[7 * i + 4], estPoseArray[7 * i + 5],
+                                  estPoseArray[7 * i + 6]);
 
-    std::cout << summary.BriefReport() << "\n";
+        estPoseArraySE3_[i]->setQuaternion(q_k);
+        estPoseArraySE3_[i]->translation() = t_k;
+    }
 
+    for (const auto T_k : deadReckonPoseArraySE3_) {
+        const auto& imgPts = observationModel(*T_k);
+        deadReckonImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
+    }
+
+    for (const auto T_k_est : estPoseArraySE3_) {
+        const auto& estImgPts = observationModel(*T_k_est);
+        estImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(estImgPts));
+    }
+
+    delete[] estPoseArray;
     estimatorFlag_ = false;
     vizFlag_ = true;
 }
 
-// void Estimator::run() {
-//     if (estimatorFlag_ == false || gtPoseArray_.size() != imuArray_.size() ||
-//         gtPoseArray_.size() != imgPtsArray_.size() || gtPoseArray_.size() < stateEnd_ + 1)
-//         return;
+void Estimator::runWithMyNotConvergedGaussNewton() {
+    // FIXME: not converged
+    if (estimatorFlag_ == false || gtPoseArray_.size() != imuArray_.size() ||
+        gtPoseArray_.size() != imgPtsArray_.size() || gtPoseArray_.size() < stateEnd_ + 1)
+        return;
 
-//     // Estimator implementation
-//     const auto gt_pose_begin = gtPoseArray_[stateBegin_];
-//     auto&& T_vk_begin_i = poseVecToSE3Pose(gt_pose_begin->theta, gt_pose_begin->r);
-//     incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
-//     deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
-//     estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+    // Estimator implementation
+    const auto gt_pose_begin = gtPoseArray_[stateBegin_];
+    auto&& T_vk_begin_i = poseVecToSE3Pose(gt_pose_begin->theta, gt_pose_begin->r);
+    incrementalPoseArraySE3_.push_back(new Sophus::SE3d(Eigen::Matrix4d::Identity()));
+    deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
+    estPoseArraySE3_.push_back(new Sophus::SE3d(T_vk_begin_i));
 
-//     for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
-//         double delta_t = imuArray_[i]->t - imuArray_[i - 1]->t;
-//         const Imu::Ptr lastImu = imuArray_[i - 1];
-//         const auto& T_k_1 = *deadReckonPoseArraySE3_.back();
-//         const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, lastImu);
-//         const auto& T_k = motionModel(delta_t, lastImu, T_k_1);
+    for (int i = stateBegin_ + 1; i < stateEnd_ + 1; i++) {
+        double delta_t = imuArray_[i]->t - imuArray_[i - 1]->t;
+        const Imu::Ptr lastImu = imuArray_[i - 1];
+        const auto& T_k_1 = *deadReckonPoseArraySE3_.back();
+        const auto& ksaiUpper_k = computeIncrementalSE3Pose(delta_t, lastImu);
+        const auto& T_k = motionModel(delta_t, lastImu, T_k_1);
 
-//         incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
-//         deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
-//         estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
-//     }
+        incrementalPoseArraySE3_.push_back(new Sophus::SE3d(ksaiUpper_k));
+        deadReckonPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
+        estPoseArraySE3_.push_back(new Sophus::SE3d(T_k));
+    }
 
-//     for (const auto T_k : deadReckonPoseArraySE3_) {
-//         const auto& imgPts = observationModel(*T_k);
-//         deadReckonImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
-//     }
+    for (const auto T_k : deadReckonPoseArraySE3_) {
+        const auto& imgPts = observationModel(*T_k);
+        deadReckonImgPtsArray_.push_back(new Eigen::Matrix<double, 20, 4>(imgPts));
+    }
 
-//     // FIXME:
-//     int batchSize = stateEnd_ - stateBegin_ + 1;
+    int batchSize = stateEnd_ - stateBegin_ + 1;
 
-//     std::vector<u_int16_t> observableImgPtsNumArray;
-//     int totalObservableImgPtsNum = 0;
-//     for (int k = 0; k < batchSize; k++) {
-//         const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
-//         observableImgPtsNumArray.push_back(countObservableImgPtsIdx(y_k).size());
-//         totalObservableImgPtsNum += observableImgPtsNumArray[k];
-//     }
+    std::vector<u_int16_t> observableImgPtsNumArray;
+    int totalObservableImgPtsNum = 0;
+    for (int k = 0; k < batchSize; k++) {
+        const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+        observableImgPtsNumArray.push_back(countObservableImgPtsIdx(y_k).size());
+        totalObservableImgPtsNum += observableImgPtsNumArray[k];
+    }
 
-//     for (int i = 0; i < maxIterations_; i++) {
-//         Eigen::VectorXd e = Eigen::VectorXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum);
-//         Eigen::VectorXd e_v = Eigen::VectorXd::Zero(6 * batchSize);
-//         Eigen::VectorXd e_y = Eigen::VectorXd::Zero(4 * totalObservableImgPtsNum);
-//         Eigen::MatrixXd H =
-//             Eigen::MatrixXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum, 6 * batchSize);
-//         Eigen::MatrixXd H_F = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
-//         Eigen::MatrixXd H_G = Eigen::MatrixXd::Zero(4 * totalObservableImgPtsNum, 6 * batchSize);
-//         Eigen::DiagonalMatrix<double, -1> W_Q_inv(6 * batchSize);
-//         Eigen::DiagonalMatrix<double, -1> W_R_inv(4 * totalObservableImgPtsNum);
-//         Eigen::DiagonalMatrix<double, -1> W_inv(6 * batchSize + 4 * totalObservableImgPtsNum);
-//         int lastObservableImgPtsIdx = 0;
-//         for (int k = 0; k < batchSize; k++) {
-//             if (k == 0) {
-//                 const auto& T_k = *estPoseArraySE3_[k];
-//                 const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
+    for (int i = 0; i < 10; i++) {
+        Eigen::VectorXd e = Eigen::VectorXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum);
+        Eigen::VectorXd e_v = Eigen::VectorXd::Zero(6 * batchSize);
+        Eigen::VectorXd e_y = Eigen::VectorXd::Zero(4 * totalObservableImgPtsNum);
+        Eigen::MatrixXd H =
+            Eigen::MatrixXd::Zero(6 * batchSize + 4 * totalObservableImgPtsNum, 6 * batchSize);
+        Eigen::MatrixXd H_F = Eigen::MatrixXd::Zero(6 * batchSize, 6 * batchSize);
+        Eigen::MatrixXd H_G = Eigen::MatrixXd::Zero(4 * totalObservableImgPtsNum, 6 * batchSize);
+        Eigen::DiagonalMatrix<double, -1> W_Q_inv(6 * batchSize);
+        Eigen::DiagonalMatrix<double, -1> W_R_inv(4 * totalObservableImgPtsNum);
+        Eigen::DiagonalMatrix<double, -1> W_inv(6 * batchSize + 4 * totalObservableImgPtsNum);
+        int lastObservableImgPtsIdx = 0;
+        for (int k = 0; k < batchSize; k++) {
+            if (k == 0) {
+                const auto& T_k = *estPoseArraySE3_[k];
+                const auto& y_k = imgPtsArray_[k + stateBegin_]->pts;
 
-//                 e_v.segment<6>(6 * k) = Eigen::VectorXd::Zero(6);
-//                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
-//                 W_Q_inv.diagonal().segment<6>(6 * k) =
-//                     100.0 * Eigen::MatrixXd::Identity(6, 6).diagonal();
+                e_v.segment<6>(6 * k) = Eigen::VectorXd::Zero(6);
+                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
+                W_Q_inv.diagonal().segment<6>(6 * k) =
+                    100.0 * Eigen::MatrixXd::Identity(6, 6).diagonal();
 
-//                 int observableImgPtsNum = observableImgPtsNumArray[k];
-//                 e_y.segment(0, 4 * observableImgPtsNum) = computeObservationError(y_k, T_k);
-//                 H_G.block(0, 0, 4 * observableImgPtsNum, 6) = G_k(y_k, T_k);
-//                 W_R_inv.diagonal().segment(0, 4 * observableImgPtsNum) = R_k_inv(y_k).diagonal();
-//                 lastObservableImgPtsIdx += observableImgPtsNum;
-//             } else {
-//                 double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ -
-//                 1]->t; auto ksaiUpper_k = *incrementalPoseArraySE3_[k]; auto T_k =
-//                 *estPoseArraySE3_[k]; auto T_k_1 = *estPoseArraySE3_[k - 1]; auto y_k =
-//                 imgPtsArray_[k + stateBegin_]->pts;
+                int observableImgPtsNum = observableImgPtsNumArray[k];
+                e_y.segment(0, 4 * observableImgPtsNum) = computeObservationError(y_k, T_k);
+                H_G.block(0, 0, 4 * observableImgPtsNum, 6) = G_k(y_k, T_k);
+                W_R_inv.diagonal().segment(0, 4 * observableImgPtsNum) = R_k_inv(y_k).diagonal();
+                lastObservableImgPtsIdx += observableImgPtsNum;
+            } else {
+                double delta_t = imuArray_[k + stateBegin_]->t - imuArray_[k + stateBegin_ - 1]->t;
+                auto ksaiUpper_k = *incrementalPoseArraySE3_[k];
+                auto T_k = *estPoseArraySE3_[k];
+                auto T_k_1 = *estPoseArraySE3_[k - 1];
+                auto y_k = imgPtsArray_[k + stateBegin_]->pts;
 
-//                 e_v.segment<6>(6 * k) = computeMotionError(ksaiUpper_k, T_k_1, T_k);
-//                 H_F.block<6, 6>(6 * k, 6 * (k - 1)) = -F_k_1(T_k, T_k_1);
-//                 H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
-//                 W_Q_inv.diagonal().segment<6>(6 * k) = Q_k_inv(delta_t).diagonal();
+                e_v.segment<6>(6 * k) = computeMotionError(ksaiUpper_k, T_k_1, T_k);
+                H_F.block<6, 6>(6 * k, 6 * (k - 1)) = -F_k_1(T_k, T_k_1);
+                H_F.block<6, 6>(6 * k, 6 * k) = Eigen::MatrixXd::Identity(6, 6);
+                W_Q_inv.diagonal().segment<6>(6 * k) = Q_k_inv(delta_t).diagonal();
 
-//                 int observableImgPtsNum = observableImgPtsNumArray[k];
-//                 e_y.segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
-//                     computeObservationError(y_k, T_k);
-//                 H_G.block(4 * lastObservableImgPtsIdx, 6 * k, 4 * observableImgPtsNum, 6) =
-//                     G_k(y_k, T_k);
-//                 W_R_inv.diagonal().segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum)
-//                 =
-//                     R_k_inv(y_k).diagonal();
-//                 lastObservableImgPtsIdx += observableImgPtsNum;
-//             }
-//         }
+                int observableImgPtsNum = observableImgPtsNumArray[k];
+                e_y.segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
+                    computeObservationError(y_k, T_k);
+                H_G.block(4 * lastObservableImgPtsIdx, 6 * k, 4 * observableImgPtsNum, 6) =
+                    G_k(y_k, T_k);
+                W_R_inv.diagonal().segment(4 * lastObservableImgPtsIdx, 4 * observableImgPtsNum) =
+                    R_k_inv(y_k).diagonal();
+                lastObservableImgPtsIdx += observableImgPtsNum;
+            }
+        }
 
-//         e.segment(0, 6 * batchSize) = e_v;
-//         e.segment(6 * batchSize, 4 * totalObservableImgPtsNum) = e_y;
+        e.segment(0, 6 * batchSize) = e_v;
+        e.segment(6 * batchSize, 4 * totalObservableImgPtsNum) = e_y;
 
-//         W_inv.diagonal().segment(0, 6 * batchSize) = W_Q_inv.diagonal();
-//         W_inv.diagonal().segment(6 * batchSize, 4 * totalObservableImgPtsNum) =
-//         W_R_inv.diagonal();
+        W_inv.diagonal().segment(0, 6 * batchSize) = W_Q_inv.diagonal();
+        W_inv.diagonal().segment(6 * batchSize, 4 * totalObservableImgPtsNum) = W_R_inv.diagonal();
 
-//         H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
-//         H.block(6 * batchSize, 0, 4 * totalObservableImgPtsNum, 6 * batchSize) = H_G;
+        H.block(0, 0, 6 * batchSize, 6 * batchSize) = H_F;
+        H.block(6 * batchSize, 0, 4 * totalObservableImgPtsNum, 6 * batchSize) = H_G;
 
-//         Eigen::MatrixXd A = H.transpose() * W_inv * H;
-//         Eigen::MatrixXd b = H.transpose() * W_inv * e;
+        Eigen::MatrixXd A = H.transpose() * W_inv * H;
+        Eigen::MatrixXd b = H.transpose() * W_inv * e;
 
-//         Eigen::VectorXd x = A.ldlt().solve(b);
+        Eigen::VectorXd x = A.ldlt().solve(b);
 
-//         std::ofstream debugLog("/home/zeming/Repos/SER_Assignments/ex04/catkin_ws/log.txt");
+        std::ofstream debugLog("./log.txt");
 
-//         if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
-//         debugLog << "iteration: " << i + 1 << std::endl;
-//         debugLog << "observed img pts num: " << totalObservableImgPtsNum << std::endl;
-//         debugLog << "e_v: \n" << e_v << std::endl;
-//         debugLog << "e_y: \n" << e_y << std::endl;
-//         debugLog << "e: \n" << e << std::endl;
-//         debugLog << "W_Q_inv: \n" << W_Q_inv.toDenseMatrix() << std::endl;
-//         debugLog << "W_R_inv: \n" << W_R_inv.toDenseMatrix() << std::endl;
-//         debugLog << "W_inv: \n" << W_inv.toDenseMatrix() << std::endl;
-//         debugLog << "H_F: \n" << H_F << std::endl;
-//         debugLog << "H_G: \n" << H_G << std::endl;
-//         debugLog << "H: \n" << H << std::endl;
-//         debugLog << "A: \n" << A << std::endl;
-//         debugLog << "b: \n" << b << std::endl;
-//         debugLog << "x: \n" << x << std::endl;
-//         debugLog.close();
+        if (!debugLog.is_open()) std::cerr << "Unable to open file" << std::endl;
+        debugLog << "iteration: " << i + 1 << std::endl;
+        debugLog << "observed img pts num: " << totalObservableImgPtsNum << std::endl;
+        debugLog << "e_v: \n" << e_v << std::endl;
+        debugLog << "e_y: \n" << e_y << std::endl;
+        debugLog << "e: \n" << e << std::endl;
+        debugLog << "W_Q_inv: \n" << W_Q_inv.toDenseMatrix() << std::endl;
+        debugLog << "W_R_inv: \n" << W_R_inv.toDenseMatrix() << std::endl;
+        debugLog << "W_inv: \n" << W_inv.toDenseMatrix() << std::endl;
+        debugLog << "H_F: \n" << H_F << std::endl;
+        debugLog << "H_G: \n" << H_G << std::endl;
+        debugLog << "H: \n" << H << std::endl;
+        debugLog << "A: \n" << A << std::endl;
+        debugLog << "b: \n" << b << std::endl;
+        debugLog << "x: \n" << x << std::endl;
+        debugLog.close();
 
-//         double motionError = 0.5 * e_v.transpose() * W_Q_inv * e_v;
-//         double measurementError = e_y.transpose() * e_y;
+        double motionError = 0.5 * e_v.transpose() * W_Q_inv * e_v;
+        double measurementError = 0.5 * e_y.transpose() * W_R_inv * e_y;
 
-//         for (int k = 0; k < batchSize; k++) {
-//             const auto optimizationValue = x.segment<6>(6 * k);
+        for (int k = 0; k < batchSize; k++) {
+            const auto optimizationValue = x.segment<6>(6 * k);
 
-//             // ROS_INFO_STREAM("before update: \n"
-//             //                 << estPoseArraySE3_[k]->rotationMatrix() << "\n"
-//             //                 << estPoseArraySE3_[k]->inverse().translation());
+            *estPoseArraySE3_[k] = Sophus::SE3d::exp(optimizationValue) * *estPoseArraySE3_[k];
+        }
 
-//             *estPoseArraySE3_[k] = Sophus::SE3d::exp(optimizationValue) * *estPoseArraySE3_[k];
+        ROS_INFO_STREAM("iteration: " << i + 1 << "  motion error: " << motionError
+                                      << "  measurement error: " << measurementError);
+    }
 
-//         //     ROS_INFO_STREAM("after update: \n"
-//         //                     << estPoseArraySE3_[k]->rotationMatrix() << "\n"
-//         //                     << estPoseArraySE3_[k]->inverse().translation());
-//         }
-
-//         ROS_INFO_STREAM("optimize iteration: " << i + 1 << "  motion error: " << motionError
-//                                                << "  measurement error: " << measurementError);
-//     }
-
-//     estimatorFlag_ = false;
-//     vizFlag_ = true;
-// }
+    estimatorFlag_ = false;
+    vizFlag_ = true;
+}
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "estimator");
@@ -719,7 +737,8 @@ int main(int argc, char** argv) {
     ros::Rate rate(100);
     while (ros::ok()) {
         ros::spinOnce();
-        estimator.run();
+        estimator.runWithCeresSolver();
+        // estimator.runWithMyNotConvergedGaussNewton();
         rate.sleep();
     }
     visThread.join();

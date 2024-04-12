@@ -1,6 +1,6 @@
-vizSpeed: 0.5
+vizSpeed: 1
 stateBegin: 1214 # 1215 - 1
 stateEnd: 1713 # 1714 - 1
-slidingWindowSize: 50
-maxIterations: 100
-minIterations: 1
+useSlidingWindow: false
+slidingWindowSize: 200
+numThreads: 8

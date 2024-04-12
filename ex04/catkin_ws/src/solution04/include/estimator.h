@@ -13,7 +13,8 @@ class Estimator : ParamServer {
    public:
     Estimator();
     ~Estimator();
-    void run();
+    void runWithCeresSolver();
+    void runWithMyNotConvergedGaussNewton();
     void visualize();
 
    private:
@@ -104,7 +105,7 @@ class Estimator : ParamServer {
     ros::Publisher gtPclWorldMarkerPub_;
     ros::Publisher gtPclWorldPub_;
     ros::Publisher gtTrajPub_;
-    ros::Publisher deadReckoningTrajPub_;
+    ros::Publisher deadReckonTrajPub_;
     ros::Publisher estTrajPub_;
     ros::Publisher frameMarkerPub_;
 
@@ -120,6 +121,7 @@ class Estimator : ParamServer {
     std::vector<const Sophus::SE3d*> deadReckonPoseArraySE3_;
     std::vector<Sophus::SE3d*> estPoseArraySE3_;
     std::vector<Eigen::Matrix<double, 20, 4>*> deadReckonImgPtsArray_;
+    std::vector<Eigen::Matrix<double, 20, 4>*> estImgPtsArray_;
 
     bool lastImuFlag_;
     bool lastImgPtsFlag_;
@@ -131,7 +133,7 @@ class Estimator : ParamServer {
 
     nav_msgs::Path gtTraj_;
     nav_msgs::Path estTraj_;
-    nav_msgs::Path deadReckoningTraj_;
+    nav_msgs::Path deadReckonTraj_;
 };
 
 #endif  // SOLUTION04_INCLUDE_ESTIMATOR_H

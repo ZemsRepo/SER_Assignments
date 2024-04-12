@@ -94,7 +94,7 @@ void publishImage(const ros::Publisher &pub, const Eigen::Matrix<double, 20, 2> 
         cv::circle(img, cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)), 5, color, -1);
         cv::putText(img, std::to_string(i + 1), cv::Point(imgPtsMono(i, 0), imgPtsMono(i, 1)),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(225, 225, 225), 1, cv::LINE_AA);
-                    
+
         if (!imgPtIsVisible(imgPtsObsModel.row(i))) continue;
         cv::circle(img, cv::Point(imgPtsObsModel(i, 0), imgPtsObsModel(i, 1)), 5, colorObsModel,
                    -1);

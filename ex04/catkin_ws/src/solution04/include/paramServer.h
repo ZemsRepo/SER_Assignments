@@ -34,9 +34,9 @@ class ParamServer {
     float vizSpeed_;
     int stateBegin_;
     int stateEnd_;
+    bool useSlidingWindow_;
     int slidingWindowSize_;
-    int maxIterations_;
-    int minIterations_;
+    int numThreads_;
 };
 
 #endif  // SOLUTION04_INCLUDE_PARAMSERVER_H
