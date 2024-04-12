@@ -200,16 +200,6 @@ Sophus::Vector6d Estimator::computeMotionError(const Sophus::SE3d& ksaiUpper_k,
     return (ksaiUpper_k * T_k_1 * T_k.inverse()).log();
 }
 
-// Sophus::Matrix6d Estimator::F_k_1(const Sophus::SE3d& T_k, const Sophus::SE3d& T_k_1) {
-//     auto&& C_k_1 = T_k_1.rotationMatrix();
-//     auto&& r_k_1 = T_k_1.inverse().translation();
-//     auto&& C_k = T_k.rotationMatrix();
-//     auto&& r_k = T_k.inverse().translation();
-//     const auto& poseDiff = Sophus::SE3d(C_k_1, r_k_1) * Sophus::SE3d(C_k, r_k).inverse();
-//     ROS_INFO_STREAM("poseDiff: \n" << poseDiff.matrix());
-//     return poseDiff.Adj();
-// }
-
 Sophus::Matrix6d Estimator::adjoint(const Sophus::SE3d& T_k) {
     const auto vec = rotMatToRotVec(T_k.rotationMatrix());
     const auto phi = vec.norm();
@@ -383,10 +373,9 @@ void Estimator::insertSparseBlock(Eigen::SparseMatrix<double>& largeMatrix,
 }
 
 void Estimator::visualize() {
-    int baseRate = 10;
+    double baseRate = 10;
     ros::Rate rate(baseRate * vizSpeed_);
     while (ros::ok()) {
-        rate.sleep();
         if (vizFlag_ == true && stateBegin_ + vizFrame_ <= stateEnd_) {
             const auto thisImu = imuArray_[stateBegin_ + vizFrame_];
             const auto thisImgPts = imgPtsArray_[stateBegin_ + vizFrame_];
@@ -440,7 +429,7 @@ void Estimator::visualize() {
                                 cv::Scalar(0, 255, 0), timeImgPts, "camera");
 
             Utils::publishImage(imgPubRight_, thisImgPts->pts.block(0, 2, 20, 2),
-                                cv::Scalar(135, 74, 32), thisEstImgPts->block(0, 2, 20, 2),
+                                cv::Scalar(0, 0, 164), thisEstImgPts->block(0, 2, 20, 2),
                                 cv::Scalar(0, 255, 0), timeImgPts, "camera");
 
             Utils::publishMarkerArray(gtPclWorldMarkerPub_, worldFrameLandmarks_, timeGtPose,
@@ -449,7 +438,13 @@ void Estimator::visualize() {
             Utils::publishMarker(frameMarkerPub_, timeGtPose, stateBegin_ + vizFrame_, "world");
 
             ++vizFrame_;
+
+            double dt = gtPoseArray_[stateBegin_ + vizFrame_ + 1]->t -
+                        gtPoseArray_[stateBegin_ + vizFrame_]->t;
+
+            rate = ros::Rate(1.0 / dt * vizSpeed_);
         }
+        rate.sleep();
     }
 }
 
@@ -536,7 +531,7 @@ void Estimator::runWithCeresSolver() {
                 problem.SetManifold(lastPosePtr, SE3);
             }
 
-            if (observableImgPtsNum > 0) {
+            if (observableImgPtsNum > 2) {
                 static Sophus::SE3d T_c_v(C_c_v_, -C_c_v_ * rho_v_c_v_);
                 auto observationErrorCostFunctor = std::make_unique<ObservationErrorCostFunctor>(
                     observableImgPtsArray[thisPoseRelIdx], observableLandmarksArray[thisPoseRelIdx],
@@ -557,6 +552,39 @@ void Estimator::runWithCeresSolver() {
         options.num_threads = numThreads_;
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
+
+        // compute uncertainty
+        // ceres::Covariance::Options covOptions;
+        // covOptions.num_threads = numThreads_;
+        // ceres::Covariance covariance(covOptions);
+        // std::vector<std::pair<const double*, const double*>> covariance_blocks(1);
+
+        // for (int i = 1; i < batchSize; i++) {
+        //     int thisPoseAbsIdx = slidingWindowStart + i;
+        //     int thisPoseRelIdx = thisPoseAbsIdx - stateBegin_;
+        //     double* thisPosePtr = estPoseArray + 7 * thisPoseRelIdx;
+        //     covariance_blocks.back() = std::make_pair(thisPosePtr, thisPosePtr);
+        //     covariance.Compute(covariance_blocks, &problem);
+
+        //     double covariance_pose[7 * 7];
+        //     covariance.GetCovarianceBlock(thisPosePtr, thisPosePtr, covariance_pose);
+
+        //     Eigen::Matrix<double, 6, 1> sigma;
+        //     Eigen::Vector4d sigma_q_vec;
+        //     Eigen::Vector3d sigma_r;
+        //     sigma_q_vec(0) = sqrt(covariance_pose[8 * 0]);
+        //     sigma_q_vec(1) = sqrt(covariance_pose[8 * 1]);
+        //     sigma_q_vec(2) = sqrt(covariance_pose[8 * 2]);
+        //     sigma_q_vec(3) = sqrt(covariance_pose[8 * 3]);
+        //     sigma_r(0) = sqrt(covariance_pose[8 * 4]);
+        //     sigma_r(1) = sqrt(covariance_pose[8 * 5]);
+        //     sigma_r(2) = sqrt(covariance_pose[8 * 6]);
+        //     Eigen::Quaterniond sigma_q(sigma_q_vec);
+        //     Sophus::SO3d sigma_q_so3(sigma_q);
+        //     sigma << sigma_r, sigma_q_so3.log();
+
+        //     ROS_INFO_STREAM("Sigma: " << sigma.transpose());
+        // }
 
         ROS_INFO_STREAM("Sliding window: " << slidingWindowStart << " - "
                                            << slidingWindowStart + batchSize - 1

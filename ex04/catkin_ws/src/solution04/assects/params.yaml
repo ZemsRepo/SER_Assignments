@@ -1,6 +1,0 @@
-vizSpeed: 1
-stateBegin: 1214 # 1215 - 1
-stateEnd: 1713 # 1714 - 1
-useSlidingWindow: false
-slidingWindowSize: 200
-numThreads: 8

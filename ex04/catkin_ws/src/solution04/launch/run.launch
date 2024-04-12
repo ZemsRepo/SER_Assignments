@@ -1,6 +1,12 @@
 <launch >
+    <param name="stateBegin" value="1214"/>
+    <param name="stateEnd" value="1713"/>
+    <param name="useSlidingWindow" value="false"/>
+    <param name="slidingWindowSize" value="10"/>
+    <param name="numThreads" value="4"/>
+    <param name="vizSpeed" value="1"/>
+
     <rosparam file="$(find solution04)/assects/dataset3Params.yaml" command="load"/>
-    <rosparam file="$(find solution04)/assects/params.yaml" command="load"/>
     <node pkg="rosbag" type="play" name="rosbag_play" args="$(find solution04)/assects/dataset3.bag -r 50 -d 2" output="log" cwd="node"/>
     <node pkg="solution04" type= "estimator" name="estimator" output="screen" cwd="node"/>
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find solution04)/assects/viz.rviz" />
